@@ -9,7 +9,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from .services import AdvisorError, FoundryUpgradeAdvisor, InvalidInputError, validate_version
+from .services import AdvisorError, ConfigurationError, FoundryUpgradeAdvisor, InvalidInputError, validate_version
 
 
 REPORTS: dict[str, dict] = {}
@@ -22,7 +22,11 @@ def index(request: HttpRequest) -> HttpResponse:
 
 @require_GET
 def health(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"status": "ok", "service": "django-upgrade-evidence", "azure_configured": FoundryUpgradeAdvisor().configured})
+    advisor = FoundryUpgradeAdvisor()
+    return JsonResponse({"status": "ok", "service": "django-upgrade-evidence",
+                         "azure_configured": advisor.configured,
+                         "integration_status": advisor.integration_status,
+                         "ready_for_test": False})
 
 
 @csrf_exempt
@@ -38,7 +42,7 @@ def analyze(request: HttpRequest) -> JsonResponse:
     except AdvisorError as exc:
         if isinstance(exc, InvalidInputError):
             return JsonResponse({"status": "invalid_input", "error": str(exc)}, status=400)
-        status = 503 if "configur" in str(exc).lower() or "instala" in str(exc).lower() else 502
+        status = 503 if isinstance(exc, ConfigurationError) else 502
         return JsonResponse({"status": "needs_configuration" if status == 503 else "integration_error", "error": str(exc)}, status=status)
     report_id = str(uuid.uuid4())
     REPORTS[report_id] = {"id": report_id, "created_at": datetime.now(timezone.utc).isoformat(), **report}

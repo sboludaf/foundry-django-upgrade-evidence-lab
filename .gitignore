@@ -1,4 +1,5 @@
 .env
+.azure/
 __pycache__/
 *.py[cod]
 *.sqlite3

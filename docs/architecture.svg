@@ -1,1 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="360" viewBox="0 0 1100 360"><style>text{font-family:Arial,sans-serif;fill:#17212b}.box{fill:#fff;stroke:#176b5f;stroke-width:2}.line{stroke:#176b5f;stroke-width:3;marker-end:url(#arrow)}</style><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#176b5f"/></marker></defs><rect width="1100" height="360" rx="24" fill="#f4f6f7"/><text x="48" y="48" font-size="26" font-weight="700">Django Upgrade Evidence · arquitectura preparada</text><rect class="box" x="55" y="125" width="190" height="90" rx="16"/><text x="88" y="164" font-size="18" font-weight="700">Navegador</text><text x="76" y="190" font-size="14">versión + revisión</text><line class="line" x1="245" y1="170" x2="330" y2="170"/><rect class="box" x="330" y="105" width="220" height="130" rx="16"/><text x="374" y="146" font-size="18" font-weight="700">Django web/API</text><text x="362" y="175" font-size="14">validación · informes</text><text x="373" y="198" font-size="14">sin secretos en UI</text><line class="line" x1="550" y1="170" x2="640" y2="170"/><rect class="box" x="640" y="105" width="180" height="130" rx="16"/><text x="672" y="146" font-size="18" font-weight="700">Fuentes oficiales</text><text x="675" y="175" font-size="14">Django · PyPI</text><text x="668" y="198" font-size="14">hash + fecha</text><line class="line" x1="820" y1="170" x2="900" y2="170"/><rect class="box" x="900" y="105" width="145" height="130" rx="16"/><text x="926" y="146" font-size="18" font-weight="700">Foundry</text><text x="918" y="175" font-size="14">Bing + Decision-1</text><text x="929" y="198" font-size="14">Azure propio</text><text x="56" y="300" font-size="15">El despliegue Azure y la integración real quedan pendientes de un plan cloud aprobado; esta entrega local no simula resultados.</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="440" viewBox="0 0 1100 440">
+<title>Recursos Azure comprobados y bloqueo Bing</title>
+<style>text{font-family:Arial,sans-serif;fill:#17212b}.ok{fill:#eaf7ee;stroke:#246b43;stroke-width:2}.pending{fill:#fff0ed;stroke:#a23a25;stroke-width:2}.line{stroke:#246b43;stroke-width:2}</style>
+<rect width="1100" height="440" rx="20" fill="#f4f6f7"/>
+<text x="35" y="40" font-size="25" font-weight="700">Azure comprobado · aprovisionamiento parcial</text>
+<text x="35" y="70" font-size="16">Readback ARM 05/11/2026 · ninguna invocación de modelos</text>
+<rect class="ok" x="35" y="110" width="285" height="200" rx="12"/>
+<text x="55" y="145" font-size="20" font-weight="700">AIServices</text>
+<text x="55" y="176" font-size="17">Cuenta y proyecto: creados</text>
+<text x="55" y="209" font-size="17">Azure AI User: asignado</text>
+<text x="55" y="250" font-size="14">Grupo propio: impl</text>
+<line class="line" x1="320" y1="170" x2="370" y2="170"/>
+<line class="line" x1="320" y1="255" x2="370" y2="255"/>
+<rect class="ok" x="370" y="110" width="300" height="85" rx="12"/>
+<text x="390" y="143" font-size="18" font-weight="700">GPT-6 Luna · creado</text>
+<text x="390" y="172" font-size="15">django-luna · no invocado</text>
+<rect class="ok" x="370" y="225" width="300" height="85" rx="12"/>
+<text x="390" y="258" font-size="18" font-weight="700">Decision-1 · creado</text>
+<text x="390" y="287" font-size="15">django-decision · no invocado</text>
+<rect class="pending" x="730" y="110" width="330" height="200" rx="12"/>
+<text x="750" y="145" font-size="19" font-weight="700">Bing Custom Search</text>
+<text x="750" y="178" font-size="17">Creación fallida: error 500</text>
+<text x="750" y="211" font-size="17">GET posterior: 404</text>
+<text x="750" y="250" font-size="15">Instancia y conexión pendientes</text>
+<text x="35" y="360" font-size="17">Hosting web, ACR, Storage, autenticación y recorrido del producto: pendientes.</text>
+<text x="35" y="393" font-size="17">Sin azd deploy, grounding, informe real ni QA. No está ready_for_test.</text>
+</svg>

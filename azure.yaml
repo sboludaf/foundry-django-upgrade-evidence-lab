@@ -1,0 +1,13 @@
+name: foundry-django-upgrade-evidence
+infra:
+  provider: bicep
+  path: infra
+services:
+  web:
+    project: .
+    host: containerapp
+    language: python
+    docker:
+      path: Dockerfile
+      context: .
+      remoteBuild: true
