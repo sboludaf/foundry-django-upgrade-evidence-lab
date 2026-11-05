@@ -1,0 +1,34 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Django Upgrade Evidence</title>
+  <link rel="stylesheet" href="{% static 'advisor/styles.css' %}">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">EVIDENCE-FIRST ADVISOR</p>
+      <h1>Actualizar Django con evidencia por versión.</h1>
+      <p class="lede">Consulta fuentes oficiales, revisa la evidencia y decide con incertidumbre visible. La aplicación nunca convierte una ausencia en seguridad.</p>
+    </header>
+    <section class="card" aria-labelledby="analysis-title">
+      <div class="card-heading"><div><p class="eyebrow">01 · ENTRADA</p><h2 id="analysis-title">Versión instalada</h2></div><span class="badge">Datos públicos</span></div>
+      <form id="analysis-form">
+        <label for="version">Django X.Y.Z</label>
+        <div class="form-row"><input id="version" name="version" placeholder="5.2.18" inputmode="decimal" autocomplete="off" required><button type="submit">Analizar versión</button></div>
+        <p class="hint">Sólo versiones finales. No se envían requirements, código ni credenciales.</p>
+      </form>
+      <div id="status" class="status" role="status" aria-live="polite">Azure se comprueba al iniciar el análisis.</div>
+    </section>
+    <section id="result" class="card hidden" aria-labelledby="result-title">
+      <div class="card-heading"><div><p class="eyebrow">02 · RESULTADO</p><h2 id="result-title">Informe revisable</h2></div></div>
+      <div id="result-body"></div>
+    </section>
+    <footer><a href="/health/">Estado técnico</a><span>·</span><span>Sin modo demo</span></footer>
+  </main>
+  <script src="{% static 'advisor/app.js' %}" defer></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Local lock for the implementation baseline. Azure Identity is optional and
+# installed with `uv sync --extra azure` for an authorized cloud run.
+Django==5.2.18
+asgiref==3.13.0
+sqlparse==0.6.1
