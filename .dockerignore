@@ -3,4 +3,6 @@
 .env
 .azure
 __pycache__
+staticfiles
+tests
 *.sqlite3

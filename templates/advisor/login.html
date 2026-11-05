@@ -1,0 +1,9 @@
+{% load static %}
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Acceso privado · Django Evidence</title><link rel="stylesheet" href="{% static 'advisor/styles.css' %}"></head>
+<body><main class="shell"><header class="hero"><p class="eyebrow">DJANGO UPGRADE EVIDENCE</p><h1>Acceso del propietario</h1>
+<p class="lede">Los análisis e informes pertenecen a este entorno privado.</p></header>
+<section class="card"><form method="post">{% csrf_token %}
+<label for="username">Usuario</label><input id="username" name="username" autocomplete="username" required maxlength="80">
+<label for="password">Contraseña</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+<button type="submit">Entrar</button></form></section></main></body></html>

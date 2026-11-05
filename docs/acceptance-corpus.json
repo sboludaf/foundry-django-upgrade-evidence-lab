@@ -1,0 +1,63 @@
+{
+  "corpusPublished": "2026-11-03",
+  "preparedBeforeInference": true,
+  "scope": "Expected observations from official sources; not QA or model output",
+  "sources": [
+    {
+      "url": "https://docs.djangoproject.com/en/dev/releases/5.2.19/",
+      "sha256": "34e88202c762ff843e6e3dca9e8451fc45ab6c9f28face70fe4ad084d77c0920"
+    },
+    {
+      "url": "https://docs.djangoproject.com/en/dev/releases/6.0.10/",
+      "sha256": "3230854b1f7e0b44642e8111fca189788cc3398ee2befdd8460e95af984582a2"
+    },
+    {
+      "url": "https://docs.djangoproject.com/en/dev/releases/security/",
+      "sha256": "0e2c4d2acf37697964306d796e058c7df5431db6d87d67702996a0c866a3c2b2"
+    },
+    {
+      "url": "https://www.djangoproject.com/weblog/2026/nov/03/security-releases/",
+      "sha256": "6d0e68b43f06de1158174432abfeb40eed0aa0cdf35449a6bc81b85ea84ccf55"
+    }
+  ],
+  "cases": [
+    {
+      "version": "5.2.18",
+      "cve": "CVE-2026-108147",
+      "expected": "documented_affected",
+      "fixed": "5.2.19",
+      "scopeNote": "Exact installed version explicitly named in release notes; do not extrapolate a lower range"
+    },
+    {
+      "version": "5.2.19",
+      "cve": "CVE-2026-108147",
+      "expected": "documented_fix",
+      "fixed": "5.2.19"
+    },
+    {
+      "version": "6.0.9",
+      "cve": "CVE-2026-108147",
+      "expected": "documented_affected",
+      "fixed": "6.0.10"
+    },
+    {
+      "version": "6.0.10",
+      "cve": "CVE-2026-108147",
+      "expected": "documented_fix",
+      "fixed": "6.0.10"
+    },
+    {
+      "branch": "5.2",
+      "cve": "CVE-2026-113733",
+      "expected": "unresolved",
+      "scopeNote": "No safe conclusion from branch absence"
+    },
+    {
+      "cve": "CVE-2026-114582",
+      "gdalVersion": null,
+      "expected": "critical_condition_unknown",
+      "actionable": false
+    }
+  ],
+  "reviewRequirement": "Tester independently checks sources and original extraction; human corrections are counted separately"
+}

@@ -3,6 +3,7 @@ param name string
 param location string
 param tags object
 param operatorPrincipalId string
+param provisionGrounding string = 'true'
 var suffix = take(uniqueString(subscription().id, resourceGroup().id, name), 10)
 resource account 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: 'aidjango${suffix}'
@@ -55,7 +56,7 @@ resource operatorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '53ca6127-db72-4b80-b1b0-d745d6d5456d')
   }
 }
-resource bing 'Microsoft.Bing/accounts@2025-05-01-preview' = {
+resource bing 'Microsoft.Bing/accounts@2025-05-01-preview' = if (provisionGrounding == 'true') {
   name: 'bingdjango${suffix}'
   location: 'global'
   tags: tags
@@ -63,12 +64,12 @@ resource bing 'Microsoft.Bing/accounts@2025-05-01-preview' = {
   sku: { name: 'G1' }
   properties: {}
 }
-resource connection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01' = {
+resource connection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01' = if (provisionGrounding == 'true') {
   parent: project
   name: 'bing-django-official'
   properties: {
     authType: 'ApiKey'
-    category: 'GroundingWithBingCustomSearch'
+    category: 'GroundingWithCustomSearch'
     target: 'https://api.bing.microsoft.com/'
     credentials: { key: listKeys(bing.id, '2025-05-01-preview').key1 }
     metadata: { ApiType: 'Azure', ResourceId: bing.id, Location: 'global' }
@@ -78,5 +79,5 @@ output accountName string = account.name
 output endpoint string = 'https://${account.name}.services.ai.azure.com'
 output projectEndpoint string = 'https://${account.name}.services.ai.azure.com/api/projects/${project.name}'
 output projectId string = project.id
-output bingConnectionId string = connection.id
-output bingId string = bing.id
+output bingConnectionId string = provisionGrounding == 'true' ? connection.id : ''
+output bingId string = provisionGrounding == 'true' ? bing.id : ''

@@ -1,34 +1,19 @@
 {% load static %}
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Django Upgrade Evidence</title>
-  <link rel="stylesheet" href="{% static 'advisor/styles.css' %}">
-</head>
-<body>
-  <main class="shell">
-    <header class="hero">
-      <p class="eyebrow">EVIDENCE-FIRST ADVISOR</p>
-      <h1>Actualizar Django con evidencia por versión.</h1>
-      <p class="lede">Prototipo en preparación. El análisis estará disponible cuando se complete la integración Azure.</p>
-    </header>
-    <section class="card" aria-labelledby="analysis-title">
-      <div class="card-heading"><div><p class="eyebrow">01 · ENTRADA</p><h2 id="analysis-title">Versión instalada</h2></div><span class="badge">Datos públicos</span></div>
-      <form id="analysis-form">
-        <label for="version">Django X.Y.Z</label>
-        <div class="form-row"><input id="version" name="version" placeholder="5.2.18" inputmode="decimal" autocomplete="off" required><button type="submit">Analizar versión</button></div>
-        <p class="hint">Sólo versiones finales. No se envían requirements, código ni credenciales.</p>
-      </form>
-      <div id="status" class="status" role="status" aria-live="polite">Integración pendiente: Bing Custom Search no se ha podido aprovisionar.</div>
-    </section>
-    <section id="result" class="card hidden" aria-labelledby="result-title">
-      <div class="card-heading"><div><p class="eyebrow">02 · RESULTADO</p><h2 id="result-title">Informe revisable</h2></div></div>
-      <div id="result-body"></div>
-    </section>
-    <footer><a href="/health/">Estado técnico</a><span>·</span><span>Sin modo demo</span></footer>
-  </main>
-  <script src="{% static 'advisor/app.js' %}" defer></script>
-</body>
-</html>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Actualizar Django · Evidencia</title><link rel="stylesheet" href="{% static 'advisor/styles.css' %}"></head>
+<body><main class="shell">
+<header class="hero"><p class="eyebrow">DJANGO · REVISIÓN DOCUMENTADA</p><h1>Preparar una actualización con evidencia.</h1>
+<p class="lede">Consulta un lote de fuentes oficiales, revisa la aplicabilidad por rama y conserva las condiciones que faltan.</p>
+<form method="post" action="/logout/">{% csrf_token %}<button type="submit">Cerrar sesión</button></form></header>
+<section class="card"><h2>Versión instalada</h2>
+<form id="analysis-form">{% csrf_token %}<label for="version">Versión final X.Y.Z</label>
+<div class="form-row"><input id="version" name="version" required placeholder="5.2.18" maxlength="16"><button>Preparar lote oficial</button></div>
+<p class="hint">Sólo Django. No se carga código ni credenciales. Crear el lote no llama a los modelos.</p></form>
+<div id="status" role="status" class="status" aria-live="polite"></div>
+{% if not grounding_ready %}<p>La búsqueda con Bing aún no está disponible en este entorno. Puedes preparar y conservar las fuentes reales; la extracción y decisión seguirán pendientes.</p>{% endif %}
+</section>
+<section class="card"><h2>Informes conservados</h2><ul>{% for job in jobs %}
+<li><a href="/reports/{{job.id}}/">Django {{job.version}}</a> · {{job.stage}} · {{job.updated_at}}</li>
+{% empty %}<li>Todavía no hay informes.</li>{% endfor %}</ul></section>
+<footer>Acceso privado del propietario · Revisión humana antes de decidir</footer>
+</main><script src="{% static 'advisor/app.js' %}" defer></script></body></html>

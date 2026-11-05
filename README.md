@@ -1,73 +1,125 @@
 # Django Upgrade Evidence
 
-**Revisión 2 bloqueada; no está lista para Tester.** Este repositorio privado conserva el prototipo Django y el aprovisionamiento Foundry intentado en Azure. Todavía no entrega el recorrido completo ni una aplicación cloud desplegada.
+Web privada para preparar una actualización de Django a partir de fuentes oficiales. Recibe una versión final X.Y.Z, conserva un lote con fecha/hash, propone evidencia con un agente Foundry y Bing Custom Search, permite corregirla y pide una decisión numérica a Microsoft-Decision-1. No modifica dependencias ni repositorios.
 
-El 05/11/2026 se crearon realmente la cuenta/proyecto Foundry y los despliegues GPT-6 Luna y Microsoft-Decision-1. La creación de Grounding with Bing Custom Search devolvió `InternalServerError: Unexpected error.` con dos versiones de API ARM. Ambas operaciones terminaron en Failed y la lectura posterior de la cuenta Bing devolvió 404. No se ejecutó `azd deploy`, ninguna inferencia ni búsqueda. La causa interna del proveedor no está determinada; no se atribuye a cuota, permisos o elegibilidad sin evidencia.
+**Estado: integración end-to-end pendiente.** La revisión incluye autenticación, Azure Blob/Table, revisión/comparador, obsolescencia e informes HTML/JSON y despliegue azd. Bing Custom Search ha fallado al crearse en la suscripción del laboratorio con error500; no se sustituye por HTTP ni por Bing estándar. Mientras falte esa conexión, se pueden preparar fuentes reales pero no obtener una decisión final del recorrido. No está ready_for_test y no tiene QA PASS.
 
-## Preparación local reproducible
+## Requisitos
 
-Requisitos: Git, Python 3.11+, uv, Azure CLI y Azure Developer CLI. Se utilizaron azd 1.34.2 y SDKs preview fijados por `uv.lock`. Instala desde este repositorio, sin archivos del autor:
+Acceso al repositorio GitHub privado; Git, Python3.11+, uv, Azure CLI, azd1.34.2 o compatible. No requiere Docker local: la imagen se construye en ACR. Las versiones de Python/SDK están fijadas por uv.lock y requirements.lock, incluidos Django5.2.19, Azure Agents1.2.0b6 y Projects2.0.0b2. No copiar código del repositorio de referencia: no se identificó licencia.
+
+Azure propio: una suscripción con presupuesto y cuota para Luna y Decision-1 en West Europe, permisos para crear recursos y asignar roles sobre su grupo exclusivo. El operador necesita acceso de datos a su Storage; el Bicep concede sólo Blob/Table en esa cuenta. La identidad de la web recibe Blob/Table propios, Azure AI User en su AIServices y AcrPull en su ACR. Sin registros de aplicación Entra, claves de Storage o Log Analytics.
+
+## Instalar y configurar un entorno propio
 
 ```sh
 uv sync --frozen
-uv run python manage.py check
-uv run python manage.py test
-uv run python manage.py runserver 127.0.0.1:8000
-```
-
-Abre http://127.0.0.1:8000. Es un prototipo local: valida una versión final X.Y.Z y muestra un bloqueo explícito. `POST /api/analyze/` con `{"version":"5.2.18"}` devuelve 503 sin llamadas pagadas; una entrada como `5.2` devuelve 400. Añadir endpoints de Azure no habilita el adaptador antiguo. `/health/` comprueba el proceso y expone por separado `integration_status` y `ready_for_test:false`.
-
-Django del servidor usa 5.2.19. El valor escrito por el usuario es la versión a estudiar, independiente de la versión del servidor. El fichero `.env.example` sólo documenta nombres; la aplicación no carga automáticamente archivos .env. Nunca escribas credenciales en .env ni en argumentos. Configuración pública mediante entorno; para futuras credenciales de arranque, entrada protegida y sólo hash persistido.
-
-El prototipo todavía carece de autenticación de propietario, persistencia Azure de informes/ledger, revisión humana y comparador por rama. No se debe exponer a una red pública. El antiguo adaptador Decision-1 enviaba un contrato de ejemplo no verificado: se ha retirado su envío y cualquier posibilidad de presentar un resultado completo.
-
-## Aprovisionamiento en Azure propio
-
-Los nombres se derivan de entorno y grupo; no hay endpoints del autor en la configuración desplegable. Usa una suscripción propia y un grupo exclusivo, con presupuesto y permisos aplicables. El despliegue independiente de Tester deberá usar otro entorno/grupo, cuenta, modelos e identidades.
-
-```sh
 az login
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd auth login
-AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env new <entorno-propio>
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env new django-evidence-reader
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_SUBSCRIPTION_ID <suscripcion-propia>
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_LOCATION westeurope
-AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_RESOURCE_GROUP <grupo-exclusivo>
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_RESOURCE_GROUP rg-django-evidence-reader
 az ad signed-in-user show --query id --output tsv
-AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_PRINCIPAL_ID <id-publico-del-operador>
-AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd provision --preview --no-prompt
-AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd provision --no-prompt
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_PRINCIPAL_ID <object-id-del-usuario>
 ```
 
-Sustituye los marcadores antes de ejecutar; no son secretos. `AZURE_PRINCIPAL_ID` es el object ID del usuario actual, no una clave ni el ID de una aplicación. La infraestructura asigna Azure AI User sobre su propia cuenta; el operador también necesita permisos de aprovisionamiento y asignación RBAC en su ámbito. Confirma disponibilidad regional y cuota antes del efecto. No cambies la suscripción para eludir un fallo.
+Sustituye los marcadores. Son identificadores públicos, no claves. Confirma la suscripción, región, cuota, presupuesto y grupo antes de efectos. Nunca uses otro laboratorio o un grupo compartido. No depende de archivos, endpoints o recursos privados del autor: las salidas de tu propio azd configuran los clientes.
 
-`infra/main.bicep` crea el grupo; `infra/core.bicep` declara AIServices, el proyecto, ambos modelos y Bing Custom Search con su conexión. Serializa Luna → Decision-1 → proyecto para evitar conflictos simultáneos sobre la cuenta. Los modelos son Luna `2026-09-22` DataZoneStandard capacidad 10 y Decision-1 `1` DataZoneStandard capacidad 500. Deshabilita claves locales de AIServices. La clave Bing sólo se enlaza dentro de ARM a la conexión, sin outputs, ficheros o argumentos.
+La copia Tester de este ciclo debe usar exactamente entorno `mvp-django-20261105-qa` y grupo `rg-mvp-django-20261105-qa`, con la suscripción de su plan aprobado. Implementer usa los nombres impl. Los recursos hijos se derivan del grupo/entorno, de modo que las copias no comparten IA, almacenamiento, identidad o web. No crees el grupo QA desde el rol Implementer.
 
-**La provisión completa aún falla en Bing.** La API actual del fichero es 2025-05-01-preview; el intento previo con 2020-06-10 también falló. `docs/provisioning-evidence.json` conserva IDs y estados saneados. Una preview correcta no acredita disponibilidad real. La instancia `django-official` y sus dominios todavía no existen; la conexión depende del recurso fallido. No se sustituye por Bing estándar o recuperación HTTP.
+## Aprovisionar y desplegar
 
-La secuencia del producto seguirá siendo `azd provision` y después `azd deploy`. **Este commit no permite completar el segundo paso:** ACR, Storage, Container Apps, RBAC de runtime y configuración de arranque todavía no están implementados; `azure.yaml` sólo declara el servicio futuro. No ejecutes `azd deploy` hasta completar esa infraestructura, el control de acceso y la integración. El Dockerfile usa Gunicorn pero aún no acredita un paquete cloud. No se ha comprobado `azd up`.
+La configuración por defecto intenta también crear Bing Custom Search. En la suscripción donde se observó su fallo, para avanzar únicamente con la infraestructura independiente:
 
-Ante un timeout de provisión, lee el deployment ARM y los IDs antes de repetir. En esta ejecución se conciliaron ambos fallos antes del segundo intento; no hay una operación pendiente conocida. Conserva el mismo entorno, grupo y recursos al reanudar. Un reintento sin cambio o diagnóstico adicional no resuelve el error del proveedor.
+```sh
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set PROVISION_GROUNDING false
+```
 
-## Arquitectura acreditada
+Esto mantiene bloqueadas las llamadas del producto que necesitan grounding; no habilita un modo simulado. Cuando la creación de Bing esté disponible, establece true para aprovisionar ese recurso/conexión y completar su instancia, sin alterar el servicio ni el SKU aprobados.
 
-![Recursos realmente creados y pendientes](docs/architecture.svg)
+```sh
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd provision --preview --no-prompt
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd provision --no-prompt
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set SOURCE_COMMIT <SHA-de-git-rev-parse-HEAD>
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd deploy web --no-prompt
+```
 
-Se han comprobado por GET ARM: AIServices, proyecto, dos modelos y rol de datos del operador. Estar aprovisionado no acredita invocación de ninguno de los modelos ni compatibilidad de Luna con Bing. No hay agente, conversación, búsqueda, instancia Bing, informe real ni hosting web.
+Primero provision, después deploy. No se ha validado azd up. `azd package` con remoteBuild puede devolver “No artifacts”; eso no acredita una imagen: el build remoto ocurre en deploy. Comprueba el resultado ACR y la revisión Container Apps. El argumento SOURCE_COMMIT es público; queda en el label OCI y en /health/. No introduzcas secretos como argumentos de build.
 
-`docs/architecture.md` distingue estos recursos de la arquitectura objetivo. No se hereda QA de la revisión 1 ni se denomina integración a los tests locales.
+Los outputs SERVICE_WEB_ENDPOINT_URL y AZURE_STORAGE_ACCOUNT pertenecen a tu instalación. Azure mantiene la clave Django como secreto del recurso, sin outputs; las claves locales de AIServices y Storage están deshabilitadas. .azure y .env están excluidos de Git/Docker. `.env.example` documenta nombres públicos; no se cargan archivos .env automáticamente.
 
-## Datos y adaptación del tutorial
+## Inicializar al propietario y entrar
 
-Referencia: [tutorial Microsoft](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). Se inspeccionó su [repositorio de ejemplo](https://github.com/SonakshiA/software-upgrade-advisor): sin licencia identificada, no se copió su código. La implementación es independiente. La propuesta seleccionó GPT-6 Luna como adaptación y conserva Decision-1 y Bing Custom Search; la combinación funcional sigue sin comprobar.
+Desde el mismo entorno azd ya aprovisionado:
 
-Fuentes previstas: [archivo de seguridad Django](https://docs.djangoproject.com/en/dev/releases/security/), [soporte](https://www.djangoproject.com/download/), notas por rama y PyPI. Sólo se admitirá evidencia oficial auténtica con URL, fecha, hash y fragmentos verificables. Los helpers actuales sólo conservan metadatos y no acreditan extracción. Antes de publicar extractos del repositorio Django debe conservarse su licencia BSD. No se distribuyen cuerpos web ni un gold inventado.
+```sh
+uv run python scripts/owner.py
+```
 
-Decision-1 requiere su [API específica systemone](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision) y respuestas tipadas noul/choice/score, todavía pendientes de implementar y validar. Las [herramientas Bing](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/bing-tools) exigen recurso, instancia y conexión; las citas de páginas y consultas deben conservarse según sus términos. Recuperar HTTP directo no reemplaza esa etapa.
+Lee únicamente outputs públicos de azd; solicita usuario y contraseña por entrada protegida. Usa una contraseña de al menos16 caracteres. Sólo persiste su hash en Azure Table. Las cookies de sesión permanecen en memoria del cliente/navegador; el backend almacena un hash del identificador y una caducidad de una hora. Cambiar el propietario invalida las sesiones anteriores por generación. En un entorno de verificación con propietario temporal, usa el mismo script para establecer tu credencial antes de entrar.
 
-## Costes y retirada
+Abre SERVICE_WEB_ENDPOINT_URL e inicia sesión. Un acceso anónimo a informes/API devuelve401 y la web redirige al login. Las mutaciones requieren CSRF; se limita el login a5 intentos/15min. El logout revoca la sesión en servidor. La aplicación no tiene registro abierto de usuarios.
 
-El ciclo privado autorizado de este laboratorio tiene estimación conjunta 5,45 EUR y techo 8 EUR; el run Implementer reserva 3,20 EUR, no es gasto facturado. Límites conjuntos: 40 invocaciones (incluidas internas), 24 búsquedas, 6.000 tokens entrada/1.000 salida total por invocación, dos entornos aislados y hasta dos correcciones. Esta ejecución ha consumido **0 inferencias, 0 búsquedas, 0 builds y 0 horas de réplica web**. No se declara factura cero: quedan recursos Azure persistentes y la reserva no se liquida.
+Cliente alternativo por API, sin cookies ni contraseñas en disco:
 
-Retirada prevista del grupo propio: 09/11/2026 10:00 Europe/Madrid. En un despliegue propio registra tu inventario y fecha. Revisa `docs/provisioning-evidence.json` y los recursos antes de eliminar; sólo el grupo exclusivo del entorno. Con autorización de retirada aplicable, el comando azd es `AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd down`; no se ha ejecutado ni probado aquí. No borres GitHub, otros grupos o recursos compartidos.
+```sh
+uv run python scripts/client.py --url <SERVICE_WEB_ENDPOINT_URL>
+```
 
-Para continuar: resolver o diagnosticar la creación Bing con el proveedor; comprobar estado por lectura; completar instancia/conexión, agente real y límites; implementar autenticación, ledger, evidencia/revisión/decisión e informes; añadir hosting/almacenamiento, ejecutar provision/deploy y verificar el recorrido real. Sólo entonces entregar un SHA nuevo como ready_for_test.
+La contraseña entra por getpass. El cliente mantiene una sesión en memoria y ofrece prepare/show/ground/reconcile/review/decide/close. No sigue redirecciones fuera del origen. No uses curl con tokens en argumentos o cookies persistidas.
+
+## Recorrido y resultados
+
+1. Introduce una versión final, por ejemplo5.2.18. Rangos, prereleases, otros tipos y versiones inválidas se rechazan antes de llamadas pagadas.
+2. “Preparar lote oficial” obtiene documentos reales: archivo de seguridad, descargas/soporte, aviso del03/11/2026, PyPI para esa versión y notas5.2.19/6.0.10. Blob conserva documentos y snapshots; Table conserva punteros, sesiones, etapas y reservas. Se muestran URL/fecha/SHA-256 y fragmentos con elisiones explícitas. Un lote fechado no acredita cobertura de avisos posteriores.
+3. Con Bing disponible, “Buscar con Bing y extraer evidencia” inicia una sola etapa persistida. El agente usa Luna y la instancia oficial. Sus citas de páginas/consultas se conservan; HTTP no reemplaza la búsqueda. Un resultado sin búsqueda, sin cita de consulta o incompleto queda bloqueado.
+4. Revisa el JSON por CVE y rama, confirma/corrige y explica el motivo. Campos críticos requieren fragmentos exactos del lote. El comparador usa tuplas numéricas: diferencia afectación documentada, corrección y aplicabilidad no resuelta. No inventa un límite inferior ni traslada parches de rama. Condiciones como GDAL desconocido permanecen abiertas.
+5. “Solicitar decisión tipada” envía el estado revisado a la API systemone. Noul es una probabilidad0–1, choice conserva su opción/distribución y score su valor decimal/escala0–3. Sin evidencia suficiente no hay urgencia accionable. Los umbrales son una política de referencia sin calibración y nunca instalan una actualización.
+6. Descargar HTML/JSON o recargar reutiliza el estado; no repite inferencias. Una corrección conserva el original y vuelve obsoleta la decisión anterior; recalcular es una acción explícita con otra reserva.
+
+El lote de aceptación se documenta en docs/acceptance-corpus.json; sus expectativas se prepararon leyendo fuentes oficiales antes de inferencia, no son PASS. Una ausencia de5.2 en un aviso o una corrección Django con GDAL desconocido no se convierten en seguridad.
+
+## Errores y recuperación
+
+Cada solicitud usa un UUID idempotente. “Consultar la etapa existente” sólo lee un run persistido; no vuelve a crearlo. Los SDK de modelo tienen retry_total0; no hay reintentos pagados automáticos. Ante timeout se conserva etapa/ID y reserva. Si la API de decisión no permite recuperar una respuesta incierta, no se reenvía esa etapa.
+
+Un error de fuente deja un fallo recuperable sin llamadas a modelos. Puedes cerrar un análisis que no esté activo/incierto para liberar su bloqueo. Una operación incierta requiere conciliación del operador antes de otra ejecución. La ausencia de almacenamiento o Bing devuelve un mensaje específico, sin resultado inventado.
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+  U[Propietario por HTTPS] --> W[Container Apps: Django]
+  W --> T[Azure Table: sesiones, etapas y ledger]
+  W --> B[Azure Blob: fuentes y snapshots]
+  ACR[ACR Basic: imagen] --> W
+  W --> F[Proyecto Foundry]
+  F -. pendiente de integración .-> G[Bing Custom Search]
+  F -. pendiente de verificación .-> L[GPT-6 Luna]
+  W -. tras revisión y grounding .-> D[Microsoft-Decision-1]
+```
+
+La infraestructura web/datos es independiente del fallo Bing. Las aristas de inferencia no acreditan ejecución. Consulta docs/architecture.md y los inventarios fechados; /health/ devuelve el SHA incorporado a la imagen, no una afirmación de integración completa.
+
+## Adaptaciones y límites
+
+[Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa Agents SDKv1 con max_prompt_tokens6000 y max_completion_tokens1000 por run (incluye razonamiento); es un límite agregado más estricto que la cota por invocación. La compatibilidad efectiva Luna+Bing sigue pendiente. El cliente retiene IDs antes/después de cada envío y valida uso/resultado. No se acepta output incompleto ni se amplían tokens automáticamente.
+
+Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo entero limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los límites del entorno por defecto son12/6; las asignaciones de ambos entornos y correcciones deben caber en el total. El ledger y la escala0–1 no son un hard cap de factura. La ventana de consumo termina09/11/2026 11:00Z para este laboratorio.
+
+Cada web:0,25vCPU/0,5GiB, mínimo0/máximo1, una revisión activa; ACR Basic, Storage LRS, modelos DataZoneStandard. Sin GPU, planes dedicados o Log Analytics. Estimación conjunta5,45EUR; techo autorizado8EUR para este ciclo privado. No se aplica como autorización a otra suscripción. Modelos y grounding cobran consumo; ACR/Storage y réplicas pueden seguir generando coste. Reserva y coste facturado se concilian por separado.
+
+Retirada prevista de recursos propios09/11/2026 10:00 Europe/Madrid. Con autorización aplicable, comprueba el inventario/grupo exacto y usa `AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd down`. Nunca borres repositorio, grupos ajenos o recursos compartidos. No se crean programaciones desde esta aplicación.
+
+## Desarrollo
+
+```sh
+uv run python manage.py collectstatic --noinput
+uv run python manage.py check
+uv run python manage.py test
+```
+
+Las pruebas locales usan dobles sólo en tests/; no se incluyen en la imagen ni acreditan cloud o QA Tester. Para desarrollo con Azure real, configura AZURE_STORAGE_ACCOUNT de tu entorno y AzureCliCredential; runserver sólo se enlaza a127.0.0.1. El producto no tiene almacenamiento local ni fixtures de demostración.
+
+Fragmentos Django: atribución a Django Software Foundation y colaboradores; licencia en docs/DJANGO-LICENSE. Las páginas weblog se enlazan y muestran extractos limitados, no se ofrecen como corpus público redistribuido. Requisitos de Bing: [citas y condiciones](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/tools/bing-tools). API Decision-1: [contrato específico](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-microsoft-decision).

@@ -1,17 +1,25 @@
-# Arquitectura al 05/11/2026
+# Arquitectura r3
+
+Grupo propio Implementer: rg-mvp-django-20261105-impl; otra instalación debe usar otro grupo/entorno azd. Azure crea nombres de hijos distintos a partir de ambos identificadores.
+
+Recursos comprobados por ARM: AIServices/proyecto, despliegues django-luna y django-decision, ACR Basic, Storage LRS con Blob evidence y Table mvpstate, identidad de runtime, roles scoped, entorno Container Apps y recurso web. No Log Analytics ni registros de aplicación Entra.
 
 ```mermaid
 flowchart LR
-  ARM[azd provision / ARM] --> A[AIServices: creado]
-  A --> L[django-luna: creado, no invocado]
-  A --> D[django-decision: creado, no invocado]
-  A --> P[Proyecto django-upgrade: creado]
-  O[Operador] --> R[Azure AI User: asignado en cuenta propia]
-  R --> A
-  ARM -. error 500 .-> B[Bing Custom Search: no creado]
-  B -. pendiente .-> C[Conexión e instancia: no creadas]
+  O[Operador Entra] --> RB[Roles de datos en Storage propio]
+  U[Propietario: sesión y CSRF] --> W[Django / Container Apps]
+  R[ACR privado, sin admin] --> W
+  W --> MI[Identidad administrada propia]
+  MI --> S[Blob: fuentes y snapshots inmutables]
+  MI --> T[Table: puntero CAS, sesión hash y reservas]
+  MI --> A[AIServices / proyecto Foundry]
+  A --> L[django-luna: aprovisionado]
+  A --> D[django-decision: aprovisionado]
+  A -. no creado .-> B[Bing Custom Search]
 ```
 
-Este diagrama se acredita con readbacks ARM y `provisioning-evidence.json`. No representa llamadas de análisis ni una aplicación web en Azure.
+La lectura de recursos no prueba inferencia ni compatibilidad. El despliegue de la imagen se comprueba aparte por /health/.commit, revisión Container Apps e imagen ACR; la disponibilidad actual no se infiere de una captura histórica. Ninguna revisión hereda QA.
 
-Objetivo pendiente: navegador autenticado → Container Apps → agente Luna + Bing Custom Search → revisión/comparador → Decision-1 → informes HTML/JSON. Blob/Table conservarán etapas, evidencia y ledger; ACR servirá la imagen. Esos componentes de hosting, datos y producto no están desplegados ni acreditados. Una futura copia Tester usará otro grupo y otros recursos.
+El frontend llama sólo a su backend por HTTPS; tokens Azure/Bing no llegan al navegador. Clave Django en secretos del recurso, contraseña sólo como hash Table, sesiones de una hora revocables por generación. No hay registro público.
+
+Bing sigue como integración requerida sin sustitución. La evidencia HTTP es un complemento auténtico con fecha/hash. El resultado final requiere agente, grounding, revisión y Decision-1 reales.

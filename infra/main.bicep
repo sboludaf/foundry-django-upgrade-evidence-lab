@@ -3,6 +3,9 @@ param environmentName string
 param location string = 'westeurope'
 param resourceGroupName string = 'rg-${environmentName}'
 param operatorPrincipalId string
+param provisionGrounding string = 'true'
+@secure()
+param djangoSecret string = '${newGuid()}${newGuid()}'
 var tags = {
   'azd-env-name': environmentName
   'lab-id': '2026-11-05-foundry-django-upgrade-evidence'
@@ -22,6 +25,7 @@ module core './core.bicep' = {
     location: location
     tags: tags
     operatorPrincipalId: operatorPrincipalId
+    provisionGrounding: provisionGrounding
   }
 }
 output AZURE_RESOURCE_GROUP string = rg.name
@@ -34,3 +38,26 @@ output AZURE_DECISION_DEPLOYMENT string = 'django-decision'
 output BING_CONNECTION_ID string = core.outputs.bingConnectionId
 output BING_CUSTOM_SEARCH_INSTANCE_NAME string = 'django-official'
 output BING_RESOURCE_ID string = core.outputs.bingId
+
+module web './web.bicep' = {
+  name: 'django-web'
+  scope: rg
+  params: {
+    name: environmentName
+    location: location
+    tags: tags
+    accountName: core.outputs.accountName
+    projectEndpoint: core.outputs.projectEndpoint
+    bingConnectionId: core.outputs.bingConnectionId
+    operatorPrincipalId: operatorPrincipalId
+    djangoSecret: djangoSecret
+  }
+}
+output AZURE_CONTAINER_REGISTRY_NAME string = web.outputs.registryName
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = web.outputs.registryEndpoint
+output SERVICE_WEB_RESOURCE_NAME string = web.outputs.appName
+output SERVICE_WEB_ENDPOINT_URL string = web.outputs.appUrl
+output AZURE_STORAGE_ACCOUNT string = web.outputs.storageName
+output AZURE_CLIENT_ID string = web.outputs.identityClientId
+output AZURE_CONTAINER_APP_ENVIRONMENT_NAME string = web.outputs.environmentName
+output AZURE_CONTAINER_APP_ENVIRONMENT_ID string = web.outputs.environmentId

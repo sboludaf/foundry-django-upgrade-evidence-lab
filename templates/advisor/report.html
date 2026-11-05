@@ -1,3 +1,45 @@
-<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Informe Django {{ report.version }}</title><style>body{font-family:system-ui,sans-serif;max-width:800px;margin:3rem auto;padding:0 1rem;color:#18212b}code{background:#eef2f5;padding:.15rem .3rem;border-radius:.3rem}li{margin:.5rem 0}.uncertain{color:#8a4b00}</style></head>
-<body><p><a href="/">← Volver</a></p><h1>Django {{ report.version }}</h1><p>Generado: <code>{{ report.created_at }}</code></p><h2>Fuentes</h2><ul>{% for source in report.evidence %}<li><strong>{{ source.title }}</strong> · <a href="{{ source.url }}">fuente oficial</a> · SHA-256 <code>{{ source.sha256 }}</code></li>{% endfor %}</ul><h2>Decisión</h2><pre>{{ report.decision|pprint }}</pre><h2>Revisión</h2><p>{{ report.review.note }}</p></body></html>
+{% load static %}
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Django {{job.version}} · Informe</title>{% if download %}<style>{{report_css|safe}}</style>{% else %}<link rel="stylesheet" href="{% static 'advisor/styles.css' %}">{% endif %}</head>
+<body><main class="shell"><header class="hero"><p class="eyebrow">EVIDENCIA POR VERSIÓN</p>
+<h1>Django {{job.version}}</h1><p>Estado: {{job.stage}} · {{job.updated_at}}</p><a href="/">Volver a mis informes</a></header>
+<div id="status" class="status" role="status" aria-live="polite"></div>
+{% if not download %}{% csrf_token %}{% endif %}
+{% if job.error %}<section class="card"><h2>Etapa pendiente</h2><p>{{job.error.message}}</p></section>{% endif %}
+<section class="card"><h2>Lote oficial</h2><p>Fecha de captura y SHA-256 pertenecen a cada documento. Lote: {{job.batch_hash|default:"todavía no recuperado"}}</p>
+{% for source in job.sources %}<details><summary><a href="{{source.url}}" rel="noopener">{{source.url}}</a></summary>
+<p>{{source.retrieved_at}} · SHA-256 {{source.sha256}}</p><blockquote>{{source.excerpt}}</blockquote></details>{% empty %}<p>Las fuentes aún no se han recuperado.</p>{% endfor %}
+{% if not download %}
+{% if job.stage == "created" or job.stage == "source_failed" %}<button data-action="sources">Recuperar fuentes oficiales</button>{% endif %}
+{% if job.stage == "sources_ready" %}
+{% if grounding_ready %}<button data-action="ground">Buscar con Bing y extraer evidencia</button>{% else %}<p>Bing Custom Search pendiente. La recuperación HTTP no acredita esa búsqueda.</p>{% endif %}{% endif %}
+{% if job.stage == "grounding_running" or job.stage == "uncertain" %}<button data-action="reconcile">Consultar la etapa existente</button>{% endif %}
+{% endif %}
+</section>
+{% if job.original %}<section class="card"><h2>Extracción original del agente</h2><p>{{job.original.summary}}</p>
+{% for cite in job.grounding.citations %}<p><a href="{{cite.url}}" rel="noopener">{{cite.title}}</a></p>{% endfor %}
+{% for query in job.grounding.query_urls %}<p><a href="{{query}}" rel="noopener">Consulta Bing utilizada</a></p>{% endfor %}
+<p>Uso del agente: {{job.grounding.usage}}</p></section>{% endif %}
+{% if job.original_validated and not download %}<section class="card"><h2>Revisión humana</h2>
+<p>Comprueba rangos, correcciones, fragmentos y condiciones. Usa null cuando un límite no esté documentado. La revisión original se conserva.</p>
+<form id="review-form"><label for="evidence">Campos de evidencia por CVE y rama (JSON)</label>
+<textarea id="evidence" rows="20" style="width:100%">{{draft}}</textarea>
+<label for="reason">Motivo de confirmación o corrección</label><input id="reason" minlength="8" maxlength="500" required>
+<input id="review-version" type="hidden" value="{{job.review_version}}"><button>Guardar revisión</button></form></section>{% endif %}
+{% if job.comparison %}<section class="card"><h2>Comparación por rama</h2><ul>
+{% for issue in job.comparison.issues %}<li>{{issue.cve}} · rama {{issue.branch}} · {{issue.state}} · corrección {{issue.fixed|default:"no documentada"}}</li>{% endfor %}</ul>
+<h3>Condiciones pendientes</h3><ul>{% for item in job.comparison.unresolved %}<li>{{item}}</li>{% empty %}<li>Sin condiciones pendientes en este lote acotado; no es una garantía de seguridad.</li>{% endfor %}</ul>
+{% if job.stage == "reviewed" and not download %}<button data-action="decide">Solicitar decisión tipada</button><p>Esta acción reserva una llamada. Recargar o descargar no la repite.</p>{% endif %}</section>{% endif %}
+{% if job.decision %}<section class="card"><h2>Microsoft-Decision-1</h2>
+{% if job.decision_stale %}<p><strong>Decisión obsoleta:</strong> se revisaron datos después de obtenerla. No la utilices hasta recalcular explícitamente.</p>{% endif %}
+<p>Señal noul: {{job.decision.response.answers.upgrade_needed.noul}} · probabilidad de 0 a 1</p>
+<p>Motivo choice: {{job.decision.response.answers.reason.choice}}</p>
+<p>Urgencia score: {{job.decision.response.answers.urgency.score}} de 3 · escala 0 Informativa, 1 Revisión, 2 Priorizar, 3 Revisión urgente.</p>
+{% if not job.decision.actionable %}<p>Urgencia no accionable: faltan evidencias o condiciones críticas.</p>{% endif %}
+<p>Los valores son orientativos, sin calibración acreditada. Decision-1 no genera una explicación ni instala actualizaciones.</p></section>{% endif %}
+<section class="card"><h2>Conservar informe</h2>
+<p><a href="/api/reports/{{job.id}}/">Descargar JSON</a> · <a href="?download=1">Descargar HTML</a></p>
+<p>Las descargas reflejan el estado de este informe, incluidas sus etapas incompletas y decisiones obsoletas.</p>
+{% if not download %}{% if job.stage == "sources_ready" or job.stage == "reviewed" or job.stage == "created" or job.stage == "source_failed" or job.stage == "awaiting_review" %}<button data-action="close">Cerrar este análisis sin nuevas llamadas</button>{% endif %}{% endif %}</section>
+{{job|json_script:"job-data"}}
+</main>{% if not download %}<script src="{% static 'advisor/app.js' %}" defer></script>{% endif %}</body></html>

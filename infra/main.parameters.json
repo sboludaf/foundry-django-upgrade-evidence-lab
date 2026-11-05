@@ -11,6 +11,9 @@
     "resourceGroupName": {
       "value": "${AZURE_RESOURCE_GROUP}"
     },
+    "provisionGrounding": {
+      "value": "${PROVISION_GROUNDING=true}"
+    },
     "operatorPrincipalId": {
       "value": "${AZURE_PRINCIPAL_ID}"
     }

@@ -1,67 +1,139 @@
-from __future__ import annotations
-
 import json
-import uuid
-from datetime import datetime, timezone
+import os
+from functools import wraps
 
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET, require_http_methods
+from azure.core.exceptions import AzureError
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse
+from django.middleware.csrf import rotate_token
+from django.shortcuts import redirect, render
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .services import AdvisorError, ConfigurationError, FoundryUpgradeAdvisor, InvalidInputError, validate_version
-
-
-REPORTS: dict[str, dict] = {}
-
-
-@require_GET
-def index(request: HttpRequest) -> HttpResponse:
-    return render(request, "advisor/index.html")
+from . import pipeline
+from .auth import COOKIE, login_owner, logout_owner, owner_required
+from .errors import AppError
+from .repository import store
 
 
-@require_GET
-def health(request: HttpRequest) -> JsonResponse:
-    advisor = FoundryUpgradeAdvisor()
-    return JsonResponse({"status": "ok", "service": "django-upgrade-evidence",
-                         "azure_configured": advisor.configured,
-                         "integration_status": advisor.integration_status,
-                         "ready_for_test": False})
+def errors(view):
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        try:
+            response = view(request, *args, **kwargs)
+        except AppError as exc:
+            response = JsonResponse({"code": exc.code, "error": str(exc)}, status=exc.status)
+        except AzureError:
+            response = JsonResponse({"code": "azure_unavailable", "error": "Azure no confirmó la operación. Revisa su estado antes de repetir."}, status=503)
+        response["Cache-Control"] = "no-store"
+        response["X-Frame-Options"] = "DENY"
+        return response
+    return wrapped
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def analyze(request: HttpRequest) -> JsonResponse:
+def body(request):
     try:
-        body = json.loads(request.body or b"{}")
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "El cuerpo debe ser JSON válido."}, status=400)
-    try:
-        version = validate_version(body.get("version", ""))
-        report = FoundryUpgradeAdvisor().analyze(version)
-    except AdvisorError as exc:
-        if isinstance(exc, InvalidInputError):
-            return JsonResponse({"status": "invalid_input", "error": str(exc)}, status=400)
-        status = 503 if isinstance(exc, ConfigurationError) else 502
-        return JsonResponse({"status": "needs_configuration" if status == 503 else "integration_error", "error": str(exc)}, status=status)
-    report_id = str(uuid.uuid4())
-    REPORTS[report_id] = {"id": report_id, "created_at": datetime.now(timezone.utc).isoformat(), **report}
-    return JsonResponse({"report_id": report_id, "status": report["status"], "report_url": f"/reports/{report_id}/", "json_url": f"/api/reports/{report_id}/"}, status=201)
+        data = json.loads(request.body)
+    except (ValueError, UnicodeError) as exc:
+        raise AppError("invalid_input", "El cuerpo debe ser un objeto JSON válido.", 400) from exc
+    if not isinstance(data, dict):
+        raise AppError("invalid_input", "El cuerpo debe ser un objeto JSON.", 400)
+    return data
 
 
 @require_GET
-def report_json(request: HttpRequest, report_id: uuid.UUID) -> JsonResponse:
-    report = REPORTS.get(str(report_id))
-    if report is None:
-        return JsonResponse({"error": "Informe no encontrado en esta sesión."}, status=404)
-    response = JsonResponse(report)
-    response["Content-Disposition"] = f'attachment; filename="django-upgrade-{report_id}.json"'
+def health(request):
+    return JsonResponse({"status": "ok", "commit": os.getenv("APP_COMMIT", "development"), "storage_configured": bool(os.getenv("AZURE_STORAGE_ACCOUNT")),
+                         "grounding_configured": bool(os.getenv("BING_CONNECTION_ID"))})
+
+
+@errors
+@require_http_methods(["GET", "POST"])
+@ensure_csrf_cookie
+def login(request):
+    if request.method == "GET":
+        return render(request, "advisor/login.html")
+    token = login_owner(request, request.POST.get("username", ""), request.POST.get("password", ""))
+    rotate_token(request)
+    response = redirect("/")
+    response.set_cookie(COOKIE, token, secure=not settings.DEBUG,
+                        httponly=True, samesite="Lax")
     return response
 
 
+@errors
+@require_POST
+@owner_required
+def logout(request):
+    logout_owner(request)
+    response = redirect("/login/")
+    response.delete_cookie(COOKIE, samesite="Lax")
+    return response
+
+
+@errors
+@owner_required
+@ensure_csrf_cookie
 @require_GET
-def report_html(request: HttpRequest, report_id: uuid.UUID) -> HttpResponse:
-    report = REPORTS.get(str(report_id))
-    if report is None:
-        return JsonResponse({"error": "Informe no encontrado en esta sesión."}, status=404)
-    return render(request, "advisor/report.html", {"report": report})
+def index(request):
+    return render(request, "advisor/index.html", {"jobs": store().jobs(request.owner),
+                                                  "grounding_ready": bool(os.getenv("BING_CONNECTION_ID"))})
+
+
+@errors
+@require_POST
+@owner_required
+def create_job(request):
+    data = body(request)
+    job = pipeline.create(request.owner, data.get("version"), data.get("idempotency_key"))
+    return JsonResponse({"id": job["id"], "stage": job["stage"], "url": "/reports/" + job["id"] + "/"}, status=201)
+
+
+@errors
+@require_POST
+@owner_required
+def action(request, report_id, operation):
+    job_id = str(report_id)
+    if operation == "sources":
+        job = pipeline.prepare(request.owner, job_id)
+    elif operation == "ground":
+        job = pipeline.ground(request.owner, job_id)
+    elif operation == "reconcile":
+        job = pipeline.reconcile(request.owner, job_id)
+    elif operation == "review":
+        data = body(request)
+        job = pipeline.review(request.owner, job_id, data.get("evidence"), data.get("reason"), data.get("review_version"))
+    elif operation == "decide":
+        job = pipeline.decide(request.owner, job_id)
+    elif operation == "close":
+        job = pipeline.abandon(request.owner, job_id)
+    else:
+        raise AppError("not_found", "Operación desconocida.", 404)
+    return JsonResponse(job)
+
+
+@errors
+@require_GET
+@owner_required
+def report_json(request, report_id):
+    job, _ = store().job(str(report_id), request.owner)
+    response = JsonResponse(job, json_dumps_params={"ensure_ascii": False})
+    response["Content-Disposition"] = 'attachment; filename="django-' + str(report_id) + '.json"'
+    return response
+
+
+@errors
+@require_GET
+@owner_required
+@ensure_csrf_cookie
+def report_html(request, report_id):
+    job, _ = store().job(str(report_id), request.owner)
+    draft = job["reviewed"] or job.get("original_validated") or job.get("original")
+    download = request.GET.get("download") == "1"
+    response = render(request, "advisor/report.html", {"job": job, "draft": json.dumps(draft, ensure_ascii=False, indent=2),
+                                                        "grounding_ready": bool(os.getenv("BING_CONNECTION_ID")),
+                                                        "download": download,
+                                                        "report_css": (settings.BASE_DIR / "static/advisor/styles.css").read_text() if download else ""})
+    if download:
+        response["Content-Disposition"] = 'attachment; filename="django-' + str(report_id) + '.html"'
+    return response

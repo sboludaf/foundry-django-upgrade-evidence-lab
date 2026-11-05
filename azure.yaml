@@ -11,3 +11,5 @@ services:
       path: Dockerfile
       context: .
       remoteBuild: true
+      buildArgs:
+        - SOURCE_COMMIT=${SOURCE_COMMIT}
