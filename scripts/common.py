@@ -17,6 +17,6 @@ def load_public():
         raise RuntimeError("No se pudo leer el entorno azd seleccionado; no se muestran sus valores.")
     values = json.loads(result.stdout)
     for name in PUBLIC:
-        if values.get(name):
-            os.environ.setdefault(name, str(values[name]))
+        if name in values:
+            os.environ[name] = str(values[name] or "")
     return {name: values.get(name) for name in PUBLIC}

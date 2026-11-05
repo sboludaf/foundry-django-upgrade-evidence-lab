@@ -4,13 +4,14 @@ import json
 import uuid
 from unittest.mock import MagicMock, patch
 from django.test import Client, SimpleTestCase
-from advisor.domain import compare, validate_evidence, version
+from advisor.domain import compare, validate_evidence, version, decision_warnings
+from advisor.sources import release_intro
 from advisor.errors import AppError
 from advisor.repository import AzureStore
 from advisor import pipeline
 
 URL = "https://docs.djangoproject.com/test-only-fixture"
-QUOTE = "Test-only: Django 5.2 before 5.2.19 is affected."
+QUOTE = "Test-only CVE-2026-999999: Django 5.2 before 5.2.19 is affected."
 SUPPORT = "Test-only: Django 5.2 is a supported branch."
 DOCS = [{"url": URL, "excerpt": QUOTE + " " + SUPPORT}]
 EVIDENCE = {"summary": "Unit-test fixture only", "issues": [
@@ -52,6 +53,25 @@ class WebAccess(SimpleTestCase):
 
 
 class EvidenceRules(SimpleTestCase):
+    def test_release_body_selected_instead_of_duplicate_navigation_title(self):
+        text = "Django 5.2.19 release notes | Navigation " + ("menu " * 200) + "Django 5.2.19 fixes a test-only issue in 5.2.18."
+        self.assertIn("in 5.2.18", release_intro(text, "5.2.19"))
+        with self.assertRaises(AppError):
+            release_intro("Django 5.2.19 release notes | Navigation only", "5.2.19")
+
+    def test_model_choice_cannot_hide_documented_applicability(self):
+        comparison = compare("5.2.18", EVIDENCE)
+        warnings = decision_warnings(comparison, {"answers": {"reason": {"choice": "no-upgrade-needed"}}})
+        self.assertTrue(warnings)
+
+    def test_cve_absent_from_release_notes_cannot_inherit_their_fix(self):
+        e = copy.deepcopy(EVIDENCE)
+        url = "https://docs.djangoproject.com/en/dev/releases/5.2.19/"
+        e["issues"][0]["branches"][0]["source_url"] = url
+        docs = [{"url": url, "excerpt": QUOTE, "cves": []}, DOCS[0]]
+        with self.assertRaises(AppError) as exc:
+            validate_evidence(e, docs)
+        self.assertEqual(exc.exception.code, "unverified_branch")
     def test_numeric_patch_comparison_and_fix_boundary(self):
         e = validate_evidence(EVIDENCE, DOCS)
         self.assertEqual(compare("5.2.9", e)["issues"][0]["state"], "documented_affected")

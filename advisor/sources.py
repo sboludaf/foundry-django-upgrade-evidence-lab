@@ -96,6 +96,7 @@ def collect(version, backend, job_id):
             if not isinstance(exc, ResourceExistsError):
                 raise
         doc["blob"] = name
+        doc["cves"] = sorted(set("CVE-" + number for number in re.findall(r"CVE[- ]([0-9]{4}-[0-9]{4,10})", doc["text"])))
         # Reports retain bounded verified excerpts, not entire source pages.
         text = doc.pop("text")
         fragments = []
@@ -108,8 +109,8 @@ def collect(version, backend, job_id):
             fragments = [text[max(0, i - 150):i + 400] for i in starts] or [text[:500]]
         else:
             if "/releases/5.2.19/" in url or "/releases/6.0.10/" in url:
-                start = text.find("Django " + ("5.2.19" if "5.2.19" in url else "6.0.10") + " release notes")
-                fragments.append(text[max(0, start):start + 300])
+                fixed = "5.2.19" if "5.2.19" in url else "6.0.10"
+                fragments.append(release_intro(text, fixed))
             for cve in ("2026-108147", "2026-113733", "2026-114582"):
                 start = text.find(cve)
                 if start >= 0:
@@ -123,6 +124,14 @@ def collect(version, backend, job_id):
         doc["excerpt"] = "\n[…]\n".join(fragments)
         docs.append(doc)
     return docs
+
+
+def release_intro(text, fixed):
+    # Page titles/navigation repeat the release name before the actual article.
+    start = text.find("Django " + fixed + " fixes")
+    if start < 0:
+        raise AppError("source_layout_changed", "No se encontró el párrafo oficial de corrección; no se inventará.", 502)
+    return text[max(0, start - 60):start + 350]
 
 
 def excerpt_is_verified(quote, url, docs):

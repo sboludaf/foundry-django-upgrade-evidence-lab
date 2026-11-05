@@ -34,6 +34,7 @@
 {% if job.decision_stale %}<p><strong>Decisión obsoleta:</strong> se revisaron datos después de obtenerla. No la utilices hasta recalcular explícitamente.</p>{% endif %}
 <p>Señal noul: {{job.decision.response.answers.upgrade_needed.noul}} · probabilidad de 0 a 1</p>
 <p>Motivo choice: {{job.decision.response.answers.reason.choice}}</p>
+{% for warning in job.decision.warnings %}<p><strong>Requiere revisión:</strong> {{warning}}</p>{% endfor %}
 <p>Urgencia score: {{job.decision.response.answers.urgency.score}} de 3 · escala 0 Informativa, 1 Revisión, 2 Priorizar, 3 Revisión urgente.</p>
 {% if not job.decision.actionable %}<p>Urgencia no accionable: faltan evidencias o condiciones críticas.</p>{% endif %}
 <p>Los valores son orientativos, sin calibración acreditada. Decision-1 no genera una explicación ni instala actualizaciones.</p></section>{% endif %}

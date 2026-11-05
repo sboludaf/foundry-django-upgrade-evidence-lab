@@ -6,6 +6,8 @@ param accountName string
 param projectEndpoint string
 param bingConnectionId string
 param operatorPrincipalId string
+param modelCallLimit string
+param bingQueryLimit string
 @secure()
 param djangoSecret string
 var suffix = take(uniqueString(subscription().id, resourceGroup().id, name), 10)
@@ -125,8 +127,8 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = {
           { name: 'AZURE_DECISION_DEPLOYMENT', value: 'django-decision' }
           { name: 'BING_CONNECTION_ID', value: bingConnectionId }
           { name: 'BING_CUSTOM_SEARCH_INSTANCE_NAME', value: 'django-official' }
-          { name: 'MODEL_CALL_LIMIT', value: '12' }
-          { name: 'BING_QUERY_LIMIT', value: '6' }
+          { name: 'MODEL_CALL_LIMIT', value: modelCallLimit }
+          { name: 'BING_QUERY_LIMIT', value: bingQueryLimit }
           { name: 'LAB_EXPIRES_AT', value: '2026-11-09T11:00:00Z' }
         ]
       }]

@@ -11,6 +11,12 @@
     "resourceGroupName": {
       "value": "${AZURE_RESOURCE_GROUP}"
     },
+    "modelCallLimit": {
+      "value": "${MODEL_CALL_LIMIT=12}"
+    },
+    "bingQueryLimit": {
+      "value": "${BING_QUERY_LIMIT=6}"
+    },
     "provisionGrounding": {
       "value": "${PROVISION_GROUNDING=true}"
     },

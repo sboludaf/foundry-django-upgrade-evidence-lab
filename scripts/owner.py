@@ -7,9 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common import load_public
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
-import django
-django.setup()
+from django.conf import settings
+if not settings.configured:
+    settings.configure(PASSWORD_HASHERS=["django.contrib.auth.hashers.PBKDF2PasswordHasher"])
 from django.contrib.auth.hashers import make_password
 from advisor.repository import store
 
@@ -25,6 +25,7 @@ def configure(username, password):
 
 if __name__ == "__main__":
     load_public()
+    os.environ["AZURE_CREDENTIAL_MODE"] = "cli"
     username = input("Usuario propietario: ").strip()
     first = getpass.getpass("Contraseña (mínimo 16 caracteres, entrada oculta): ")
     second = getpass.getpass("Repite la contraseña (entrada oculta): ")

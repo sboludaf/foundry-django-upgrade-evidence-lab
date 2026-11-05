@@ -44,6 +44,12 @@ def validate_evidence(evidence, docs):
                         raise AppError("wrong_branch", "La corrección y el rango deben pertenecer a su rama.", 422)
             low, high, fixed = (branch.get(k) for k in ("affected_from", "affected_to", "fixed"))
             quote = branch["quote"]
+            source = next(d for d in docs if d["url"] == branch["source_url"])
+            if fixed and ("/releases/" + fixed + "/") in branch["source_url"]:
+                if issue["cve"] not in source.get("cves", []):
+                    raise AppError("unverified_branch", "El CVE no aparece en las notas de esa corrección.", 422)
+            elif any((low, high, fixed)) and issue["cve"] not in quote.replace("CVE ", "CVE-"):
+                raise AppError("unverified_branch", "La cita debe relacionar este CVE con las versiones de su rama.", 422)
             if fixed and fixed not in quote:
                 raise AppError("unverified_fix", "La versión corregida debe aparecer en el fragmento citado.", 422)
             before_fix = fixed and re.search(r"(?:before|prior to|antes de)\s+" + re.escape(fixed), quote, re.I)
@@ -106,3 +112,13 @@ def compare(installed, evidence):
         unresolved.append("La ausencia de avisos no acredita una versión segura.")
     return {"issues": result, "unresolved": sorted(set(unresolved)),
             "actionable": not unresolved, "version": installed}
+
+
+def decision_warnings(comparison, response):
+    reason = response["answers"]["reason"]["choice"]
+    warnings = []
+    if any(i["state"] == "documented_affected" for i in comparison["issues"]) and reason == "no-upgrade-needed":
+        warnings.append("La opción del modelo contradice una afectación documentada por el comparador.")
+    if comparison["unresolved"] and reason != "insufficient-evidence":
+        warnings.append("La opción del modelo no conserva todas las condiciones críticas sin resolver.")
+    return warnings

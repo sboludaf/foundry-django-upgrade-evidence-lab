@@ -4,6 +4,10 @@ param location string = 'westeurope'
 param resourceGroupName string = 'rg-${environmentName}'
 param operatorPrincipalId string
 param provisionGrounding string = 'true'
+@allowed(['6', '12', '24'])
+param modelCallLimit string = '12'
+@allowed(['3', '6', '12'])
+param bingQueryLimit string = '6'
 @secure()
 param djangoSecret string = '${newGuid()}${newGuid()}'
 var tags = {
@@ -51,6 +55,8 @@ module web './web.bicep' = {
     bingConnectionId: core.outputs.bingConnectionId
     operatorPrincipalId: operatorPrincipalId
     djangoSecret: djangoSecret
+    modelCallLimit: modelCallLimit
+    bingQueryLimit: bingQueryLimit
   }
 }
 output AZURE_CONTAINER_REGISTRY_NAME string = web.outputs.registryName

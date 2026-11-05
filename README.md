@@ -10,6 +10,8 @@ Acceso al repositorio GitHub privado; Git, Python3.11+, uv, Azure CLI, azd1.34.2
 
 Azure propio: una suscripción con presupuesto y cuota para Luna y Decision-1 en West Europe, permisos para crear recursos y asignar roles sobre su grupo exclusivo. El operador necesita acceso de datos a su Storage; el Bicep concede sólo Blob/Table en esa cuenta. La identidad de la web recibe Blob/Table propios, Azure AI User en su AIServices y AcrPull en su ACR. Sin registros de aplicación Entra, claves de Storage o Log Analytics.
 
+El operador debe seleccionar también su suscripción en Azure CLI con `az account set --subscription <suscripcion-propia>`. Los helpers de propietario sustituyen sólo las variables públicas por las del entorno azd seleccionado, evitando reutilizar endpoints de otro entorno.
+
 ## Instalar y configurar un entorno propio
 
 ```sh
@@ -107,6 +109,10 @@ La infraestructura web/datos es independiente del fallo Bing. Las aristas de inf
 [Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa Agents SDKv1 con max_prompt_tokens6000 y max_completion_tokens1000 por run (incluye razonamiento); es un límite agregado más estricto que la cota por invocación. La compatibilidad efectiva Luna+Bing sigue pendiente. El cliente retiene IDs antes/después de cada envío y valida uso/resultado. No se acepta output incompleto ni se amplían tokens automáticamente.
 
 Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo entero limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los límites del entorno por defecto son12/6; las asignaciones de ambos entornos y correcciones deben caber en el total. El ledger y la escala0–1 no son un hard cap de factura. La ventana de consumo termina09/11/2026 11:00Z para este laboratorio.
+
+Para los cuatro casos por versión del Tester, su entorno aislado puede fijar MODEL_CALL_LIMIT=24 y BING_QUERY_LIMIT=12 mediante `azd env set` antes de provision. Junto a12/6 del Implementer reserva como máximo36 invocaciones/18 búsquedas; las correcciones y diagnósticos deben mantenerse dentro de40/24 conjuntos, leyendo los ledgers y sin reiniciarlos. No aumentar estos valores en un entorno ya desplegado para eludir una reserva agotada.
+
+Las notas por versión se capturan desde el párrafo “Django X.Y.Z fixes”, no desde el título repetido en navegación. Un CVE ausente de las notas de una corrección no hereda ese parche. Si la opción de Decision-1 contradice la afectación determinista o ignora condiciones críticas, se conserva su valor pero se bloquea la urgencia accionable y se señala la discrepancia.
 
 Cada web:0,25vCPU/0,5GiB, mínimo0/máximo1, una revisión activa; ACR Basic, Storage LRS, modelos DataZoneStandard. Sin GPU, planes dedicados o Log Analytics. Estimación conjunta5,45EUR; techo autorizado8EUR para este ciclo privado. No se aplica como autorización a otra suscripción. Modelos y grounding cobran consumo; ACR/Storage y réplicas pueden seguir generando coste. Reserva y coste facturado se concilian por separado.
 

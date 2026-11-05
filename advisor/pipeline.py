@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 
-from .domain import compare, validate_evidence, version
+from .domain import compare, validate_evidence, version, decision_warnings
 from .errors import AppError
 from .integrations import INSTRUCTIONS, agents, grounding_tool, read_grounding, call_decision
 from .repository import store
@@ -75,9 +75,17 @@ def ground(owner, job_id):
         job, etag = backend.job(job_id, owner)
         job["agent_id"], job["stage"] = agent.id, "grounding_creating_thread"
         backend.save_job(job, etag)
+        context_sources = []
+        target_branch = ".".join(job["version"].split(".")[:2])
+        for doc in job["sources"]:
+            limit = 1100 if "security/" in doc["url"] else 600
+            if "/releases/" in doc["url"] and "security/" not in doc["url"]:
+                limit = 1100 if ("/releases/" + target_branch + ".") in doc["url"] else 450
+            if "pypi.org" in doc["url"]:
+                limit = 100
+            context_sources.append({"url": doc["url"], "excerpt": doc["excerpt"][:limit]})
         context = json.dumps({"version": job["version"], "batch": job["batch_hash"],
-                             "sources": [{"url": d["url"], "excerpt": d["excerpt"][:1800]}
-                                         for d in job["sources"]]}, ensure_ascii=False)
+                             "sources": context_sources}, ensure_ascii=False)
         if len(context.encode()) > 14_000:
             raise AppError("grounding_input_limit", "El lote es demasiado grande para el presupuesto de entrada.", 413)
         thread = client.threads.create(messages=[{"role": "user", "content": context}])
@@ -172,9 +180,11 @@ def decide(owner, job_id):
                                   "review": job["reviewed"], "comparison": job["comparison"],
                                   "batch_hash": job["batch_hash"]})
         job, etag = backend.job(job_id, owner)
+        warnings = decision_warnings(job["comparison"], response)
         job["decision"] = {"response": response, "review_version": job["review_version"],
                            "scale": [0, 3], "policy": "Reference only; no automatic updates; thresholds uncalibrated",
-                           "actionable": job["comparison"]["actionable"] and response["answers"]["reason"]["choice"] != "insufficient-evidence"}
+                           "warnings": warnings,
+                           "actionable": not warnings and job["comparison"]["actionable"] and response["answers"]["reason"]["choice"] != "insufficient-evidence"}
         job["decision_stale"], job["stage"] = False, "complete"
         backend.save_job(job, etag)
         backend.release(job_id)
