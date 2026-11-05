@@ -87,7 +87,7 @@ class EvidenceRules(SimpleTestCase):
         self.assertFalse(compare("5.2.19", e)["actionable"])
 
     def test_critical_fields_need_exact_quote_and_same_branch(self):
-        for field, value in (("fixed", "5.2.20"), ("fixed", "6.0.10"), ("quote", "invented quote not in batch")):
+        for field, value in (("fixed", "5.2.20"), ("fixed", "6.0.10"), ("branch", 5.2), ("quote", "invented quote not in batch")):
             e = copy.deepcopy(EVIDENCE)
             e["issues"][0]["branches"][0][field] = value
             with self.assertRaises(AppError):
@@ -101,6 +101,22 @@ class EvidenceRules(SimpleTestCase):
 
 
 class RecoveryRules(SimpleTestCase):
+    def test_invalid_original_can_be_corrected_without_repeating_grounding(self):
+        job = self.job()
+        job.update(stage="grounding_running", run_id="test-only", thread_id="test-only", review_version=0, decision=None)
+        backend, state = fixture(job)
+        invalid = copy.deepcopy(EVIDENCE)
+        invalid["issues"][0]["branches"][0]["fixed"] = "6.0.10"
+        result = {"extraction": invalid, "searches": 1}
+        with patch("advisor.pipeline.store", return_value=backend), patch("advisor.pipeline.agents"), patch("advisor.pipeline.read_grounding", return_value=result):
+            pending = pipeline.reconcile("owner", job["id"])
+            self.assertEqual(pending["stage"], "awaiting_review")
+            self.assertFalse(pending["original_validation"]["valid"])
+            repaired = pipeline.review("owner", job["id"], EVIDENCE, "Correct test-only branch attribution", 0)
+            self.assertEqual(repaired["stage"], "reviewed")
+            self.assertEqual(repaired["original"], invalid)
+            backend.reserve.assert_not_called()
+
     def job(self):
         return {"id": str(uuid.uuid4()), "owner": "owner", "version": "5.2.18",
                 "stage": "complete", "review_version": 1, "sources": DOCS,
@@ -123,7 +139,7 @@ class RecoveryRules(SimpleTestCase):
         job = self.job()
         job["stage"] = "reviewed"
         backend, state = fixture(job)
-        with patch("advisor.pipeline.store", return_value=backend), patch("advisor.pipeline.call_decision", side_effect=AppError("decision_uncertain", "unit-test timeout", 502)) as call:
+        with patch("advisor.pipeline.store", return_value=backend), patch("advisor.pipeline.decision_body", return_value=b"unit-test"), patch("advisor.pipeline.call_decision", side_effect=AppError("decision_uncertain", "unit-test timeout", 502)) as call:
             with self.assertRaises(AppError):
                 pipeline.decide("owner", job["id"])
             self.assertEqual(state["job"]["stage"], "uncertain")
@@ -131,6 +147,18 @@ class RecoveryRules(SimpleTestCase):
                 pipeline.decide("owner", job["id"])
             self.assertEqual(call.call_count, 1)
             backend.release.assert_not_called()
+
+    def test_oversized_decision_input_is_rejected_before_reservation(self):
+        job = self.job()
+        job["stage"] = "reviewed"
+        job["reviewed"]["uncertainty"] = ["x" * 500] * 8
+        job["reviewed"]["summary"] = "x" * 1500
+        backend, _ = fixture(job)
+        with patch("advisor.pipeline.store", return_value=backend), patch.dict("os.environ", {"AZURE_AI_ENDPOINT": "https://unit-test.services.ai.azure.com", "AZURE_DECISION_DEPLOYMENT": "unit-test"}):
+            with self.assertRaises(AppError) as exc:
+                pipeline.decide("owner", job["id"])
+            self.assertEqual(exc.exception.code, "decision_input_limit")
+            backend.reserve.assert_not_called()
 
     def test_missing_bing_never_reserves_or_calls_model(self):
         job = self.job()

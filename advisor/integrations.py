@@ -115,10 +115,14 @@ def finite(value, low, high):
 
 
 def validate_decision(response):
+    if not isinstance(response, dict):
+        raise AppError("decision_schema", "Decision-1 no devolvió un objeto válido.", 502)
     answers = response.get("answers")
     if not isinstance(answers, dict):
         raise AppError("decision_schema", "Decision-1 no devolvió el objeto answers.", 502)
     noul, reason, urgency = (answers.get(k, {}) for k in ("upgrade_needed", "reason", "urgency"))
+    if not all(isinstance(answer, dict) for answer in (noul, reason, urgency)):
+        raise AppError("decision_schema", "Los valores tipados de Decision-1 no son objetos válidos.", 502)
     if noul.get("type") != "noul" or not finite(noul.get("noul"), 0, 1):
         raise AppError("decision_schema", "La señal noul no es una probabilidad válida.", 502)
     if reason.get("type") != "choice" or reason.get("choice") not in REASONS:
@@ -140,11 +144,14 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise AppError("decision_redirect", "Decision-1 intentó redirigir la solicitud.", 502)
 
 
-def call_decision(state):
-    endpoint = os.environ["AZURE_AI_ENDPOINT"].rstrip("/")
+def decision_body(state):
+    endpoint = os.getenv("AZURE_AI_ENDPOINT", "").rstrip("/")
     if not endpoint.startswith("https://") or not endpoint.endswith(".services.ai.azure.com"):
         raise AppError("needs_configuration", "Endpoint Foundry no válido.", 503)
-    payload = {"model": os.environ["AZURE_DECISION_DEPLOYMENT"], "state": state,
+    deployment = os.getenv("AZURE_DECISION_DEPLOYMENT")
+    if not deployment:
+        raise AppError("needs_configuration", "Configura el despliegue Decision-1 del entorno.", 503)
+    payload = {"model": deployment, "state": state,
                "questions": {
                    "upgrade_needed": {"type": "noul", "instructions": "Does the reviewed evidence justify an upgrade review?",
                        "criteria": {"true": "Documented applicable security fix or unsupported release.",
@@ -157,6 +164,12 @@ def call_decision(state):
     # Byte-conservative bound leaves room for API framing within 6k input tokens.
     if len(body) > 5500:
         raise AppError("decision_input_limit", "Reduce el texto de revisión conservando sus campos y referencias: supera el límite de entrada.", 413)
+    return body
+
+
+def call_decision(state):
+    body = decision_body(state)
+    endpoint = os.environ["AZURE_AI_ENDPOINT"].rstrip("/")
     token = credential().get_token("https://cognitiveservices.azure.com/.default").token
     request = urllib.request.Request(endpoint + "/providers/microsoft/v1/systemone", data=body, method="POST",
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json", "Accept": "application/json"})

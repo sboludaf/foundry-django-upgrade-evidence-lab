@@ -7,7 +7,7 @@ import uuid
 
 from .domain import compare, validate_evidence, version, decision_warnings
 from .errors import AppError
-from .integrations import INSTRUCTIONS, agents, grounding_tool, read_grounding, call_decision
+from .integrations import INSTRUCTIONS, agents, grounding_tool, read_grounding, call_decision, decision_body
 from .repository import store
 from .sources import collect
 
@@ -129,7 +129,12 @@ def reconcile(owner, job_id):
             return job
         job["grounding"] = result
         job["original"] = result["extraction"]
-        job["original_validated"] = validate_evidence(job["original"], job["sources"])
+        try:
+            job["original_validated"] = validate_evidence(job["original"], job["sources"])
+            job["original_validation"] = {"valid": True}
+        except AppError as validation:
+            job["original_validated"] = None
+            job["original_validation"] = {"valid": False, "code": validation.code, "message": str(validation)}
         job["stage"] = "awaiting_review"
         job.pop("error", None)
         backend.save_job(job, etag)
@@ -170,15 +175,18 @@ def decide(owner, job_id):
         raise AppError("review_required", "Confirma la revisión antes de pedir una decisión.")
     if not job.get("grounding", {}).get("searches"):
         raise AppError("grounding_required", "La decisión requiere grounding Bing real acreditado.", 503)
+    state = {"package": "Django", "version": job["version"], "review": job["reviewed"],
+             "comparison": {"issues": [{"cve": i["cve"], "state": i["state"]} for i in job["comparison"]["issues"]],
+                            "unresolved": job["comparison"]["unresolved"]},
+             "batch_hash": job["batch_hash"]}
+    decision_body(state)  # Configuration/size failures must not consume a reservation.
     backend.acquire(job_id)
     step = job_id + ":decision:" + str(job["review_version"])
     backend.reserve(job_id, step, 1, 0)
     job["stage"], job["effect"] = "decision_sending", step
     backend.save_job(job, etag)
     try:
-        response = call_decision({"package": "Django", "version": job["version"],
-                                  "review": job["reviewed"], "comparison": job["comparison"],
-                                  "batch_hash": job["batch_hash"]})
+        response = call_decision(state)
         job, etag = backend.job(job_id, owner)
         warnings = decision_warnings(job["comparison"], response)
         job["decision"] = {"response": response, "review_version": job["review_version"],

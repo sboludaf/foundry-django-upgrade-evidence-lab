@@ -132,6 +132,9 @@ def report_html(request, report_id):
     download = request.GET.get("download") == "1"
     response = render(request, "advisor/report.html", {"job": job, "draft": json.dumps(draft, ensure_ascii=False, indent=2),
                                                         "grounding_ready": bool(os.getenv("BING_CONNECTION_ID")),
+                                                        "has_extraction": job.get("original") is not None,
+                                                        "original_pretty": json.dumps(job.get("original"), ensure_ascii=False, indent=2),
+                                                        "reviewed_pretty": json.dumps(job.get("reviewed"), ensure_ascii=False, indent=2),
                                                         "download": download,
                                                         "report_css": (settings.BASE_DIR / "static/advisor/styles.css").read_text() if download else ""})
     if download:

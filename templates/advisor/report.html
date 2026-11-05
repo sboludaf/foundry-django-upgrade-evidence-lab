@@ -16,16 +16,21 @@
 {% if job.stage == "grounding_running" or job.stage == "uncertain" %}<button data-action="reconcile">Consultar la etapa existente</button>{% endif %}
 {% endif %}
 </section>
-{% if job.original %}<section class="card"><h2>Extracción original del agente</h2><p>{{job.original.summary}}</p>
+{% if has_extraction %}<section class="card"><h2>Extracción original del agente</h2><p>{{job.original.summary}}</p>
+<details><summary>Campos originales íntegros</summary><pre style="white-space:pre-wrap">{{original_pretty}}</pre></details>
+{% if not job.original_validation.valid %}<p>La extracción requiere corrección antes de decidir: {{job.original_validation.message}}</p>{% endif %}
 {% for cite in job.grounding.citations %}<p><a href="{{cite.url}}" rel="noopener">{{cite.title}}</a></p>{% endfor %}
 {% for query in job.grounding.query_urls %}<p><a href="{{query}}" rel="noopener">Consulta Bing utilizada</a></p>{% endfor %}
 <p>Uso del agente: {{job.grounding.usage}}</p></section>{% endif %}
-{% if job.original_validated and not download %}<section class="card"><h2>Revisión humana</h2>
+{% if has_extraction %}<section class="card"><h2>Revisión humana</h2>
+{% if job.reviewed %}<details><summary>Evidencia confirmada</summary><pre style="white-space:pre-wrap">{{reviewed_pretty}}</pre></details>{% endif %}
+{% for change in job.changes %}<p>Revisión {{change.review_version}}: {{change.reason}}</p>{% endfor %}
+{% if not download %}
 <p>Comprueba rangos, correcciones, fragmentos y condiciones. Usa null cuando un límite no esté documentado. La revisión original se conserva.</p>
 <form id="review-form"><label for="evidence">Campos de evidencia por CVE y rama (JSON)</label>
 <textarea id="evidence" rows="20" style="width:100%">{{draft}}</textarea>
 <label for="reason">Motivo de confirmación o corrección</label><input id="reason" minlength="8" maxlength="500" required>
-<input id="review-version" type="hidden" value="{{job.review_version}}"><button>Guardar revisión</button></form></section>{% endif %}
+<input id="review-version" type="hidden" value="{{job.review_version}}"><button>Guardar revisión</button></form>{% endif %}</section>{% endif %}
 {% if job.comparison %}<section class="card"><h2>Comparación por rama</h2><ul>
 {% for issue in job.comparison.issues %}<li>{{issue.cve}} · rama {{issue.branch}} · {{issue.state}} · corrección {{issue.fixed|default:"no documentada"}}</li>{% endfor %}</ul>
 <h3>Condiciones pendientes</h3><ul>{% for item in job.comparison.unresolved %}<li>{{item}}</li>{% empty %}<li>Sin condiciones pendientes en este lote acotado; no es una garantía de seguridad.</li>{% endfor %}</ul>

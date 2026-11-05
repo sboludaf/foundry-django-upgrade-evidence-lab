@@ -33,7 +33,7 @@ def validate_evidence(evidence, docs):
             if not isinstance(branch, dict):
                 raise AppError("invalid_evidence", "Cada rama debe ser un objeto.", 422)
             name = branch.get("branch", "")
-            if not re.fullmatch(r"[0-9]{1,3}\.[0-9]{1,3}", name):
+            if not isinstance(name, str) or not re.fullmatch(r"[0-9]{1,3}\.[0-9]{1,3}", name):
                 raise AppError("invalid_evidence", "Rama no válida.", 422)
             if not excerpt_is_verified(branch.get("quote", ""), branch.get("source_url"), docs):
                 raise AppError("unverified_claim", "Un campo crítico no tiene un fragmento exacto del lote oficial.", 422)
