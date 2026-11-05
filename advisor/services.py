@@ -25,6 +25,10 @@ class AdvisorError(Exception):
     """A user-facing, non-secret failure in the analysis pipeline."""
 
 
+class InvalidInputError(AdvisorError):
+    pass
+
+
 class ConfigurationError(AdvisorError):
     pass
 
@@ -37,9 +41,9 @@ def validate_version(value: str) -> str:
     value = (value or "").strip()
     match = VERSION_RE.fullmatch(value)
     if not match:
-        raise AdvisorError("Escribe una versión Django final con formato X.Y.Z.")
+        raise InvalidInputError("Escribe una versión Django final con formato X.Y.Z.")
     if int(match.group("major")) < 1:
-        raise AdvisorError("La versión Django no es válida.")
+        raise InvalidInputError("La versión Django no es válida.")
     return value
 
 

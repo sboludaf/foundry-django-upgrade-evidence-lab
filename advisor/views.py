@@ -9,7 +9,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from .services import AdvisorError, FoundryUpgradeAdvisor, validate_version
+from .services import AdvisorError, FoundryUpgradeAdvisor, InvalidInputError, validate_version
 
 
 REPORTS: dict[str, dict] = {}
@@ -36,6 +36,8 @@ def analyze(request: HttpRequest) -> JsonResponse:
         version = validate_version(body.get("version", ""))
         report = FoundryUpgradeAdvisor().analyze(version)
     except AdvisorError as exc:
+        if isinstance(exc, InvalidInputError):
+            return JsonResponse({"status": "invalid_input", "error": str(exc)}, status=400)
         status = 503 if "configur" in str(exc).lower() or "instala" in str(exc).lower() else 502
         return JsonResponse({"status": "needs_configuration" if status == 503 else "integration_error", "error": str(exc)}, status=status)
     report_id = str(uuid.uuid4())

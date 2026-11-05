@@ -10,8 +10,8 @@ class AdvisorTests(TestCase):
 
     def test_invalid_version_is_rejected_before_integration(self):
         response = self.client.post("/api/analyze/", data=json.dumps({"version": "5.2"}), content_type="application/json")
-        self.assertEqual(response.status_code, 502)
-        self.assertEqual(response.json()["status"], "integration_error")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["status"], "invalid_input")
 
     def test_unconfigured_azure_never_returns_a_fake_report(self):
         response = self.client.post("/api/analyze/", data=json.dumps({"version": "5.2.18"}), content_type="application/json")
