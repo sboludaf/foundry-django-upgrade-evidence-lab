@@ -16,6 +16,34 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 from .errors import AppError
 
 
+def charged_usage(ledger):
+    """Keep cumulative counters intact; subtract only itemized terminal settlements.
+
+    Settlements are operator reconciliation records, never accepted from a web
+    request. They do not settle Azure billing or permit replay of an old effect.
+    """
+    reservations = {r["id"]: r for r in ledger["reservations"]}
+    seen, released = set(), {}
+    for entry in ledger.get("settlements", []):
+        key, parent = entry.get("id"), entry.get("reservation_id")
+        if not key or key in seen or parent not in reservations or not entry.get("proof"):
+            raise AppError("ledger_invalid", "Conciliación del ledger no verificable; no se iniciará consumo.", 409)
+        seen.add(key)
+        totals = released.setdefault(parent, {"models": 0, "searches": 0})
+        for field in ("models", "searches"):
+            amount = entry.get("unused_" + field)
+            if type(amount) is not int or amount < 0:
+                raise AppError("ledger_invalid", "Conciliación del ledger no válida.", 409)
+            totals[field] += amount
+            if totals[field] > reservations[parent][field]:
+                raise AppError("ledger_invalid", "La conciliación supera su reserva original.", 409)
+    models = ledger["model_calls"] - sum(v["models"] for v in released.values())
+    searches = ledger["searches"] - sum(v["searches"] for v in released.values())
+    if min(models, searches) < 0:
+        raise AppError("ledger_invalid", "El ledger no conserva sus contadores acumulados.", 409)
+    return {"models": models, "searches": searches}
+
+
 @lru_cache
 def credential():
     if os.getenv("AZURE_CREDENTIAL_MODE") == "managed_identity":
@@ -118,7 +146,8 @@ class AzureStore:
             raise AppError("analysis_active", "El análisis no conserva el bloqueo de ejecución.")
         if any(r["id"] == step_id for r in value["reservations"]):
             raise AppError("effect_already_reserved", "La etapa ya fue reservada. Reconcilia su ID; no se reenviará.")
-        if value["model_calls"] + models > int(os.getenv("MODEL_CALL_LIMIT", "12")) or value["searches"] + searches > int(os.getenv("BING_QUERY_LIMIT", "6")):
+        charged = charged_usage(value)
+        if charged["models"] + models > int(os.getenv("MODEL_CALL_LIMIT", "12")) or charged["searches"] + searches > int(os.getenv("BING_QUERY_LIMIT", "6")):
             raise AppError("budget_exhausted", "Se ha alcanzado el límite de consumo del entorno.", 429)
         value["model_calls"] += models
         value["searches"] += searches

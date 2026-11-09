@@ -85,7 +85,8 @@ def ground(owner, job_id):
             if "pypi.org" in doc["url"]:
                 limit = 100
             context_sources.append({"url": doc["url"], "excerpt": doc["excerpt"][:limit]})
-        context = json.dumps({"version": job["version"], "batch": job["batch_hash"],
+        context = json.dumps({"as_of": time.strftime("%Y-%m-%d", time.gmtime()),
+                             "version": job["version"], "batch": job["batch_hash"],
                              "sources": context_sources}, ensure_ascii=False)
         if len(context.encode()) > 8_000:
             raise AppError("grounding_input_limit", "El lote es demasiado grande para el presupuesto de entrada.", 413)

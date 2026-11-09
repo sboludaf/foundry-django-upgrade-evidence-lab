@@ -302,8 +302,29 @@ class ResponsesRecovery(SimpleTestCase):
             "usage": {"input_tokens": 1100, "output_tokens": output_tokens}}
         client = MagicMock()
         client.responses.retrieve.return_value = SimpleNamespace(id="test-response", status="completed",
-            error=None, model_dump=lambda: data)
+            error=None, model_dump=lambda **kwargs: data)
         return client
+
+    def test_cumulative_counters_are_not_reset_by_terminal_settlement(self):
+        from advisor.repository import charged_usage
+        ledger = {"model_calls": 12, "searches": 6, "reservations": [
+            {"id": "terminal-test-effect", "models": 5, "searches": 3}], "settlements": [
+            {"id": "test-reconciliation", "reservation_id": "terminal-test-effect",
+             "unused_models": 4, "unused_searches": 3, "proof": {"run": "test-run", "status": "failed"}}]}
+        self.assertEqual(charged_usage(ledger), {"models": 8, "searches": 3})
+        self.assertEqual((ledger["model_calls"], ledger["searches"]), (12, 6))
+        ledger["settlements"].append(copy.deepcopy(ledger["settlements"][0]))
+        with self.assertRaises(AppError):
+            charged_usage(ledger)
+
+    def test_overrelease_or_unknown_reservation_blocks_consumption(self):
+        from advisor.repository import charged_usage
+        for parent, amount in (("foreign-effect", 1), ("effect", 6), ("effect", -1)):
+            ledger = {"model_calls": 5, "searches": 3, "reservations": [{"id": "effect", "models": 5, "searches": 3}],
+                "settlements": [{"id": "test", "reservation_id": parent, "unused_models": amount,
+                                 "unused_searches": 0, "proof": {"status": "terminal"}}]}
+            with self.assertRaises(AppError):
+                charged_usage(ledger)
 
     def test_response_requires_real_tool_call_and_official_citation(self):
         from advisor.integrations import read_response
