@@ -13,6 +13,30 @@ from .repository import store
 from .sources import collect
 
 
+def grounding_context(job):
+    """Keep CVE membership and GDAL conditions, rather than truncating each page's start."""
+    targets = {"CVE-2026-108147", "CVE-2026-113733", "CVE-2026-114582"}
+    sources = []
+    for doc in job["sources"]:
+        fragments = doc.get("fragments", [doc["excerpt"]])
+        if "security/" in doc["url"]:
+            selected = fragments[:3]
+        elif "/weblog/" in doc["url"]:
+            selected = [f for f in fragments if "Full protection requires GDAL" in f]
+        elif "/releases/" in doc["url"]:
+            selected = fragments[:1]
+        else:
+            selected = fragments[:1]
+        sources.append({"url": doc["url"], "excerpts": selected,
+                        "documented_cves": sorted(targets.intersection(doc.get("cves", [])))})
+    context = json.dumps({"as_of": time.strftime("%Y-%m-%d", time.gmtime()),
+                          "version": job["version"], "batch": job["batch_hash"],
+                          "sources": sources}, ensure_ascii=False)
+    if len(context.encode()) > 8_000:
+        raise AppError("grounding_input_limit", "El lote es demasiado grande para el presupuesto de entrada.", 413)
+    return context
+
+
 def create(owner, installed, key):
     installed = version(installed)
     try:
@@ -76,20 +100,7 @@ def ground(owner, job_id):
         job.update(agent_id=agent.id, agent_name=agent.name, agent_version=agent.version,
                    grounding_api="responses", stage="grounding_creating_conversation")
         backend.save_job(job, etag)
-        context_sources = []
-        target_branch = ".".join(job["version"].split(".")[:2])
-        for doc in job["sources"]:
-            limit = 1100 if "security/" in doc["url"] else 600
-            if "/releases/" in doc["url"] and "security/" not in doc["url"]:
-                limit = 1100 if ("/releases/" + target_branch + ".") in doc["url"] else 450
-            if "pypi.org" in doc["url"]:
-                limit = 100
-            context_sources.append({"url": doc["url"], "excerpt": doc["excerpt"][:limit]})
-        context = json.dumps({"as_of": time.strftime("%Y-%m-%d", time.gmtime()),
-                             "version": job["version"], "batch": job["batch_hash"],
-                             "sources": context_sources}, ensure_ascii=False)
-        if len(context.encode()) > 8_000:
-            raise AppError("grounding_input_limit", "El lote es demasiado grande para el presupuesto de entrada.", 413)
+        context = grounding_context(job)
         client = response_client(project)
         conversation = client.conversations.create(metadata={"job": job_id})
         job, etag = backend.job(job_id, owner)

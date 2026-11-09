@@ -53,6 +53,18 @@ class WebAccess(SimpleTestCase):
 
 
 class EvidenceRules(SimpleTestCase):
+    def test_model_context_keeps_cve_membership_and_late_gdal_condition(self):
+        job = {"version": "5.2.18", "batch_hash": "test-only", "sources": [
+            {"url": "https://www.djangoproject.com/weblog/test-only/", "excerpt": "test-only",
+             "fragments": ["Introduction " * 100, "Full protection requires GDAL 3.9 or later."], "cves": []},
+            {"url": "https://docs.djangoproject.com/en/dev/releases/5.2.19/", "excerpt": "test-only",
+             "fragments": ["Django 5.2.19 fixes a test-only issue in 5.2.18."],
+             "cves": ["CVE-2026-108147", "CVE-2026-114582"]}]}
+        data = json.loads(pipeline.grounding_context(job))
+        self.assertIn("Full protection requires GDAL", data["sources"][0]["excerpts"][0])
+        self.assertEqual(data["sources"][1]["documented_cves"], ["CVE-2026-108147", "CVE-2026-114582"])
+        self.assertNotIn("CVE-2026-113733", data["sources"][1]["documented_cves"])
+
     def test_release_body_selected_instead_of_duplicate_navigation_title(self):
         text = "Django 5.2.19 release notes | Navigation " + ("menu " * 200) + "Django 5.2.19 fixes a test-only issue in 5.2.18."
         self.assertIn("in 5.2.18", release_intro(text, "5.2.19"))
