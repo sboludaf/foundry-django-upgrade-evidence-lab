@@ -5,10 +5,13 @@ param resourceGroupName string = 'rg-${environmentName}'
 param operatorPrincipalId string
 param provisionGrounding string = 'true'
 @description('Retirement timestamp from the approved plan. This tag does not schedule deletion.')
-param cleanupAt string = '2026-11-09T10:00:00+01:00'
+param cleanupAt string = '2026-11-11T10:00:00+01:00'
 @description('End of paid analyses from the approved plan; defaults to the retirement deadline.')
 param labExpiresAt string = cleanupAt
-@allowed(['6', '12', '24'])
+param proposalHash string = 'fa6aff792c7592ad892721d3c3511a4f18b5dfb82a867c205c35d36957b7cc5d'
+@description('For an existing installation, keep its current real image during provision.')
+param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+@allowed(['6', '12', '16', '24'])
 param modelCallLimit string = '12'
 @allowed(['3', '6', '12'])
 param bingQueryLimit string = '6'
@@ -17,7 +20,7 @@ param djangoSecret string = '${newGuid()}${newGuid()}'
 var tags = {
   'azd-env-name': environmentName
   'lab-id': '2026-11-05-foundry-django-upgrade-evidence'
-  'proposal-hash': '77d253e1f6a9fa26b0b597b999415613111e11a9b21bef70be053d2f38688542'
+  'proposal-hash': proposalHash
   'cleanup-at': cleanupAt
 }
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -62,6 +65,7 @@ module web './web.bicep' = {
     modelCallLimit: modelCallLimit
     bingQueryLimit: bingQueryLimit
     labExpiresAt: labExpiresAt
+    containerImage: containerImage
   }
 }
 output AZURE_CONTAINER_REGISTRY_NAME string = web.outputs.registryName

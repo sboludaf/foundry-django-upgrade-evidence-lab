@@ -13,7 +13,7 @@
 {% if job.stage == "created" or job.stage == "source_failed" %}<button data-action="sources">Recuperar fuentes oficiales</button>{% endif %}
 {% if job.stage == "sources_ready" %}
 {% if grounding_ready %}<button data-action="ground">Buscar con Bing y extraer evidencia</button>{% else %}<p>Bing Custom Search pendiente. La recuperación HTTP no acredita esa búsqueda.</p>{% endif %}{% endif %}
-{% if job.stage == "grounding_running" or job.stage == "uncertain" %}<button data-action="reconcile">Consultar la etapa existente</button>{% endif %}
+{% if job.stage == "grounding_running" or job.stage == "grounding_failed" or job.stage == "uncertain" %}<button data-action="reconcile">Consultar la etapa existente</button>{% endif %}
 {% endif %}
 </section>
 {% if has_extraction %}<section class="card"><h2>Extracción original del agente</h2><p>{{job.original.summary}}</p>

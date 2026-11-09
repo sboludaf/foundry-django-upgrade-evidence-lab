@@ -44,7 +44,8 @@ def agents():
     endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
     if not endpoint:
         raise AppError("needs_configuration", "Configura el proyecto Foundry del entorno.", 503)
-    return AgentsClient(endpoint=endpoint, credential=credential(), retry_total=0)
+    return AgentsClient(endpoint=endpoint, credential=credential(),
+                        api_version="2025-05-15-preview", retry_total=0)
 
 
 def grounding_tool():
@@ -54,6 +55,38 @@ def grounding_tool():
     return BingCustomSearchTool(
         connection_id=connection, instance_name=os.environ["BING_CUSTOM_SEARCH_INSTANCE_NAME"], count=1
     )
+
+
+AGENT_NAME = "django-upgrade-evidence"
+AGENT_APP = "django-upgrade-evidence"
+
+
+def _tool_shape(value):
+    if isinstance(value, list):
+        return [_tool_shape(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _tool_shape(item) for key, item in value.items()
+                if item is not None and item != "" and item != [] and item != {}}
+    return value
+
+
+def application_agent(client, tool):
+    """Reuse the one dedicated agent; never add a second or adopt another agent."""
+    model = os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"]
+    definitions = _tool_shape([definition.as_dict() for definition in tool.definitions])
+    existing = list(client.list_agents(limit=100))
+    if existing:
+        if len(existing) != 1:
+            raise AppError("agent_conflict", "El proyecto contiene más de un agente; concilia el inventario antes de continuar.", 409)
+        agent = client.get_agent(existing[0].id)
+        if agent.name != AGENT_NAME or (agent.metadata or {}).get("application") != AGENT_APP:
+            raise AppError("agent_conflict", "El agente existente no pertenece a esta aplicación; no se creará otro.", 409)
+        actual_tools = _tool_shape([definition.as_dict() for definition in agent.tools])
+        if agent.model != model or agent.instructions != INSTRUCTIONS or actual_tools != definitions:
+            raise AppError("agent_configuration", "El agente conservado no coincide con el modelo, instrucciones o conexión actuales; el operador debe conciliarlo.", 409)
+        return agent
+    return client.create_agent(model=model, name=AGENT_NAME, instructions=INSTRUCTIONS,
+                               tools=tool.definitions, metadata={"application": AGENT_APP})
 
 
 def read_grounding(client, job):

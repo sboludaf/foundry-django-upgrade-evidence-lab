@@ -135,6 +135,16 @@ class RecoveryRules(SimpleTestCase):
             self.assertEqual(result["review_version"], 2)
             backend.reserve.assert_not_called()
 
+    def test_failed_result_can_be_reread_without_resending_inference(self):
+        job = self.job()
+        job.update(stage="grounding_failed", run_id="completed-test-run", thread_id="test-thread")
+        backend, state = fixture(job)
+        with patch("advisor.pipeline.store", return_value=backend), patch("advisor.pipeline.agents"), patch(
+                "advisor.pipeline.read_grounding", return_value={"extraction": EVIDENCE, "searches": 1}):
+            result = pipeline.reconcile("owner", job["id"])
+        self.assertEqual(result["stage"], "awaiting_review")
+        backend.reserve.assert_not_called()
+
     def test_uncertain_decision_is_not_resent(self):
         job = self.job()
         job["stage"] = "reviewed"
@@ -223,3 +233,60 @@ class BingReferences(SimpleTestCase):
         with self.assertRaises(AppError) as error:
             self.read(self.client_for([{"url": "https://www.bing.com/search?q=test"}]))
         self.assertEqual(error.exception.code, "website_citation_missing")
+
+
+class SingleAgentBudget(SimpleTestCase):
+    def configured(self):
+        from types import SimpleNamespace
+        from advisor.integrations import AGENT_APP, AGENT_NAME, INSTRUCTIONS
+        definition = SimpleNamespace(as_dict=lambda: {"type": "bing_custom_search",
+            "bing_custom_search": {"search_configurations": [{"connection_id": "test", "instance_name": "django-official"}]}})
+        agent = SimpleNamespace(id="test-agent", name=AGENT_NAME, model="django-luna",
+            instructions=INSTRUCTIONS, tools=[definition], metadata={"application": AGENT_APP})
+        return SimpleNamespace(definitions=[definition]), agent
+
+    def test_only_one_dedicated_agent_is_created(self):
+        from advisor.integrations import application_agent
+        tool, agent = self.configured()
+        client = MagicMock()
+        client.list_agents.return_value = []
+        client.create_agent.return_value = agent
+        with patch.dict("os.environ", {"AZURE_AI_MODEL_DEPLOYMENT_NAME": "django-luna"}):
+            self.assertEqual(application_agent(client, tool).id, agent.id)
+        self.assertEqual(client.create_agent.call_count, 1)
+
+    def test_next_analysis_reuses_agent_without_creation(self):
+        from advisor.integrations import application_agent
+        tool, agent = self.configured()
+        client = MagicMock()
+        client.list_agents.return_value = [agent]
+        client.get_agent.return_value = agent
+        with patch.dict("os.environ", {"AZURE_AI_MODEL_DEPLOYMENT_NAME": "django-luna"}):
+            self.assertEqual(application_agent(client, tool).id, agent.id)
+        client.create_agent.assert_not_called()
+
+    def test_duplicate_or_foreign_agents_are_not_adopted_or_added(self):
+        from advisor.integrations import application_agent
+        tool, agent = self.configured()
+        client = MagicMock()
+        for existing in ([agent, agent], [agent]):
+            client.list_agents.return_value = existing
+            agent.metadata = {}
+            client.get_agent.return_value = agent
+            with patch.dict("os.environ", {"AZURE_AI_MODEL_DEPLOYMENT_NAME": "django-luna"}):
+                with self.assertRaises(AppError):
+                    application_agent(client, tool)
+        client.create_agent.assert_not_called()
+
+    def test_configuration_drift_requires_reconciliation(self):
+        from advisor.integrations import application_agent
+        tool, agent = self.configured()
+        agent.instructions = "changed by someone else"
+        client = MagicMock()
+        client.list_agents.return_value = [agent]
+        client.get_agent.return_value = agent
+        with patch.dict("os.environ", {"AZURE_AI_MODEL_DEPLOYMENT_NAME": "django-luna"}):
+            with self.assertRaises(AppError) as error:
+                application_agent(client, tool)
+        self.assertEqual(error.exception.code, "agent_configuration")
+        client.create_agent.assert_not_called()

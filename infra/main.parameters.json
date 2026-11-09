@@ -21,10 +21,16 @@
       "value": "${PROVISION_GROUNDING=true}"
     },
     "cleanupAt": {
-      "value": "${CLEANUP_AT=2026-11-09T10:00:00+01:00}"
+      "value": "${CLEANUP_AT=2026-11-11T10:00:00+01:00}"
     },
     "labExpiresAt": {
-      "value": "${LAB_EXPIRES_AT=2026-11-09T09:00:00Z}"
+      "value": "${LAB_EXPIRES_AT=2026-11-11T09:00:00Z}"
+    },
+    "proposalHash": {
+      "value": "${PROPOSAL_HASH=fa6aff792c7592ad892721d3c3511a4f18b5dfb82a867c205c35d36957b7cc5d}"
+    },
+    "containerImage": {
+      "value": "${SERVICE_WEB_IMAGE=mcr.microsoft.com/azuredocs/containerapps-helloworld:latest}"
     },
     "operatorPrincipalId": {
       "value": "${AZURE_PRINCIPAL_ID}"

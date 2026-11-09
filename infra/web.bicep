@@ -9,6 +9,7 @@ param operatorPrincipalId string
 param modelCallLimit string
 param bingQueryLimit string
 param labExpiresAt string
+param containerImage string
 @secure()
 param djangoSecret string
 var suffix = take(uniqueString(subscription().id, resourceGroup().id, name), 10)
@@ -112,7 +113,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = {
     template: {
       containers: [{
         name: 'web'
-        image: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+        image: containerImage
         resources: { cpu: json('0.25'), memory: '0.5Gi' }
         env: [
           { name: 'DJANGO_SECRET_KEY', secretRef: 'django-secret' }

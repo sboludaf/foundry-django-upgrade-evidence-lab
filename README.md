@@ -2,7 +2,7 @@
 
 Web privada para preparar una actualización de Django a partir de fuentes oficiales. Recibe una versión final X.Y.Z, conserva un lote con fecha/hash, propone evidencia con un agente Foundry y Bing Custom Search, permite corregirla y pide una decisión numérica a Microsoft-Decision-1. No modifica dependencias ni repositorios.
 
-**Estado: integración end-to-end pendiente.** La corrección r4 prepara el SKU G2/API2020-06-10 de Bing Custom Search, su instancia de dominios y el tratamiento correcto de sus citas. No se ha desplegado esta corrección: el último SHA servido y verificado es r3, 1760bb14f44f8b28c3cba7885451191b066a795d. Los tres intentos históricos usaron G1 y fallaron; G2/configuración y el recorrido con Luna aún requieren comprobación real. No está ready_for_test y no tiene QA PASS. [Diagnóstico y fuentes oficiales](docs/bing-setup.md).
+Requiere una instalación propia en Azure con Bing Custom Search G2, proyecto Foundry y los dos modelos. El agente es único por entorno y se reutiliza entre análisis; cada análisis conserva su thread/run y sus reservas. La salida depende de evidencia oficial y revisión explícita: un fallo o incertidumbre nunca se sustituye por datos simulados. [Configuración, diagnóstico y fuentes oficiales Bing](docs/bing-setup.md).
 
 ## Requisitos
 
@@ -50,6 +50,8 @@ AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd deploy web --no-prompt
 ```
 
 Primero provision, después deploy. No se ha validado azd up. `azd package` con remoteBuild puede devolver “No artifacts”; eso no acredita una imagen: el build remoto ocurre en deploy. Comprueba el resultado ACR y la revisión Container Apps. El argumento SOURCE_COMMIT es público; queda en el label OCI y en /health/. No introduzcas secretos como argumentos de build.
+
+Al actualizar una instalación existente, fija SERVICE_WEB_IMAGE a la imagen actual de esa misma Container App antes de provision. Así se conserva el producto real durante el cambio de infraestructura. Usa sólo el grupo y recursos de tu entorno; deploy publicará después la imagen del SHA nuevo.
 
 Los outputs SERVICE_WEB_ENDPOINT_URL y AZURE_STORAGE_ACCOUNT pertenecen a tu instalación. Azure mantiene la clave Django como secreto del recurso, sin outputs; las claves locales de AIServices y Storage están deshabilitadas. .azure y .env están excluidos de Git/Docker. `.env.example` documenta nombres públicos; no se cargan archivos .env automáticamente.
 
@@ -100,26 +102,26 @@ flowchart LR
   W --> B[Azure Blob: fuentes y snapshots]
   ACR[ACR Basic: imagen] --> W
   W --> F[Proyecto Foundry]
-  F -. pendiente de integración .-> G[Bing Custom Search]
-  F -. pendiente de verificación .-> L[GPT-6 Luna]
+  F --> L[Un agente GPT-6 Luna]
+  L --> G[Bing Custom Search G2]
   W -. tras revisión y grounding .-> D[Microsoft-Decision-1]
 ```
 
-La infraestructura web/datos es independiente del fallo Bing. Las aristas de inferencia no acreditan ejecución. Consulta docs/architecture.md y los inventarios fechados; /health/ devuelve el SHA incorporado a la imagen, no una afirmación de integración completa.
+El diagrama representa los servicios configurados. El resultado de una consulta y la revisión del usuario se verifican en el recorrido real; crear recursos no acredita una respuesta. /health/ devuelve el SHA de la imagen efectiva.
 
 ## Adaptaciones y límites
 
-[Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa Agents SDKv1 con max_prompt_tokens6000 y max_completion_tokens1000 por run (incluye razonamiento); es un límite agregado más estricto que la cota por invocación. La compatibilidad efectiva Luna+Bing sigue pendiente. El cliente retiene IDs antes/después de cada envío y valida uso/resultado. No se acepta output incompleto ni se amplían tokens automáticamente.
+[Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa AgentsClient del SDKv1/API2025-05-15-preview directamente, con max_prompt_tokens6000 y max_completion_tokens1000 por run(incluye razonamiento); es un límite agregado más estricto que la cota por invocación. Compatibilidad y resultado se comprueban con una llamada real, no por catálogo. El cliente retiene IDs, exige uso/citas y permite releer el mismo run tras un fallo de interpretación. No acepta output incompleto ni amplía tokens o reenvía inferencia automáticamente.
 
-Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo entero limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los límites del entorno por defecto son12/6; las asignaciones de ambos entornos y correcciones deben caber en el total. El ledger y la escala0–1 no son un hard cap de factura. El plan original fijó retirada09/11/2026 09:00Z y reservó hasta11:00Z para cierre/conciliación; esa vigencia no amplía el consumo. Los entornos propios deben fijar LAB_EXPIRES_AT y CLEANUP_AT según su plan.
+Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los valores por defecto son12/6. La continuación aprobada asigna16/6 al autor y24/12 al Tester: las2 llamadas históricas ya están en el ledger del autor, por lo que quedan como máximo38 nuevas entre ambos entornos. No reiniciar contadores ni aumentar límites para eludir reservas. El ledger y escala0–1 no son un hard cap de factura. El consumo termina11/11/2026 09:00Z; el cierre hasta11:00Z no permite nuevas llamadas. Cada instalación propia debe fijar sus fechas y presupuesto.
 
-Para los cuatro casos por versión del Tester, su entorno aislado puede fijar MODEL_CALL_LIMIT=24 y BING_QUERY_LIMIT=12 mediante `azd env set` antes de provision. Junto a12/6 del Implementer reserva como máximo36 invocaciones/18 búsquedas; las correcciones y diagnósticos deben mantenerse dentro de40/24 conjuntos, leyendo los ledgers y sin reiniciarlos. No aumentar estos valores en un entorno ya desplegado para eludir una reserva agotada.
+Para los cuatro casos por versión del Tester, su entorno aislado fija MODEL_CALL_LIMIT=24 y BING_QUERY_LIMIT=12 antes de provision. Autor y Tester leen los dos ledgers antes de reservar correcciones/retests; un límite insuficiente bloquea una nueva llamada. Las asignaciones conservadoras no garantizan cubrir un número de repeticiones si se agotan los topes.
 
 Las notas por versión se capturan desde el párrafo “Django X.Y.Z fixes”, no desde el título repetido en navegación. Un CVE ausente de las notas de una corrección no hereda ese parche. Si la opción de Decision-1 contradice la afectación determinista o ignora condiciones críticas, se conserva su valor pero se bloquea la urgencia accionable y se señala la discrepancia.
 
-Cada web:0,25vCPU/0,5GiB, mínimo0/máximo1, una revisión activa; ACR Basic, Storage LRS, modelos DataZoneStandard. Sin GPU, planes dedicados o Log Analytics. Estimación conjunta5,45EUR; techo autorizado8EUR para este ciclo privado. No se aplica como autorización a otra suscripción. Modelos y grounding cobran consumo; ACR/Storage y réplicas pueden seguir generando coste. Reserva y coste facturado se concilian por separado.
+Cada web:0,25vCPU/0,5GiB, mínimo0/máximo1, una revisión activa; ACR Basic, Storage LRS y modelos DataZoneStandard. La continuación acota16 replica-h adicionales/entorno,2d de ACR/Storage y6 builds adicionales conjuntos de20vCPU-min. Estimación adicional3,94EUR, techo adicional3,95 y4,05 reservados anteriores: agregado≤8EUR del laboratorio, sin impuestos cotizados. Esto no autoriza otra suscripción. Modelos/grounding, registro, almacenamiento y réplicas pueden generar coste; reservas y facturación se concilian por separado.
 
-Retirada prevista de recursos propios09/11/2026 10:00 Europe/Madrid. Con autorización aplicable, comprueba el inventario/grupo exacto y usa `AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd down`. Nunca borres repositorio, grupos ajenos o recursos compartidos. No se crean programaciones desde esta aplicación.
+Retirada de la continuación:11/11/2026 10:00 Europe/Madrid. Cada instalación propia usa la fecha de su plan, que no se renueva por reintento. Con autorización aplicable, comprueba el inventario/grupo exacto y usa `AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd down`. Nunca borres repositorio, grupos ajenos o recursos compartidos. No se crean programaciones desde esta aplicación.
 
 ## Desarrollo
 

@@ -20,8 +20,8 @@ El inventario y GET del recurso deben mostrar la cuenta G2, su configuración y 
 
 La lectura actual indica suscripción Enabled, PayAsYouGo_2014-09-01, spendingLimit Off y proveedor Microsoft.Bing Registered. No justifica afirmar que ésta sea una suscripción gratuita no elegible. No modificar ofertas, permisos, registros o seguridad para eludir un error.
 
-## Evidencia que sigue pendiente
+## Provisión observada y verificación del recorrido
 
-La corrección G2/configuración/citas está preparada; no ha creado recursos ni desplegado una imagen nueva. El último despliegue verificado es r3, SHA1760bb14f44f8b28c3cba7885451191b066a795d. El plan del ciclo fijó retirada el 09/11 a las10:00 Europe/Madrid; la vigencia restante hasta las12:00 se reservó para cierre/conciliación. Ampliar esa ventana exige una decisión persistida del ciclo en MVP Labs. No se hereda QA ni se presenta esta corrección como integración acreditada.
+El09/11/2026 azd provision terminó correctamente conG2/API2020-06-10, configuración y conexión. Los GET confirman cuenta Succeeded, los tres dominios permitidos y authType ApiKey/category GroundingWithCustomSearch. La continuación fue registrada y aprobada en MVP Labs con nueva ventana hasta11/11 10:00Europe/Madrid. El agente django-luna con herramienta bing_custom_search se creó y se reutiliza; no hay un agente nuevo por análisis. Estos hechos de configuración no sustituyen las llamadas reales del recorrido ni la QA independiente.
 
-Con una ventana vigente: provision primero, deploy después, comprobar SHA servido, inicializar acceso protegido y completar versión → fuentes reales → agente Luna/Bing → revisión humana → Decision-1 → informes. Sólo esa evidencia permite entregar ready_for_test y congelar un SHA para reproducción independiente.
+Para consumir y comprobar el producto: provision primero, deploy después, comprobar SHA servido, inicializar acceso protegido y completar versión → fuentes reales → agente Luna/Bing → revisión humana → Decision-1 → informes. Sólo esa evidencia permite entregar ready_for_test y congelar un SHA para reproducción independiente.

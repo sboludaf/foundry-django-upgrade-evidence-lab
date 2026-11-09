@@ -7,7 +7,7 @@ import uuid
 
 from .domain import compare, validate_evidence, version, decision_warnings
 from .errors import AppError
-from .integrations import INSTRUCTIONS, agents, grounding_tool, read_grounding, call_decision, decision_body
+from .integrations import agents, grounding_tool, application_agent, read_grounding, call_decision, decision_body
 from .repository import store
 from .sources import collect
 
@@ -70,8 +70,7 @@ def ground(owner, job_id):
     backend.save_job(job, etag)
     client = agents()
     try:
-        agent = client.create_agent(model=os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
-                                    name="django-" + job_id, instructions=INSTRUCTIONS, tools=tool.definitions)
+        agent = application_agent(client, tool)
         job, etag = backend.job(job_id, owner)
         job["agent_id"], job["stage"] = agent.id, "grounding_creating_thread"
         backend.save_job(job, etag)
@@ -121,7 +120,7 @@ def reconcile(owner, job_id):
             job["run_id"], job["stage"] = matches[0].id, "grounding_running"
             backend.save_job(job, etag)
             job, etag = backend.job(job_id, owner)
-    if job["stage"] != "grounding_running":
+    if job["stage"] not in ("grounding_running", "grounding_failed"):
         return job
     try:
         result = read_grounding(agents(), job)
