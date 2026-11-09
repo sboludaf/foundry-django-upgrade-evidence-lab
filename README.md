@@ -2,7 +2,7 @@
 
 Web privada para preparar una actualización de Django a partir de fuentes oficiales. Recibe una versión final X.Y.Z, conserva un lote con fecha/hash, propone evidencia con un agente Foundry y Bing Custom Search, permite corregirla y pide una decisión numérica a Microsoft-Decision-1. No modifica dependencias ni repositorios.
 
-**Estado: integración end-to-end pendiente.** La revisión incluye autenticación, Azure Blob/Table, revisión/comparador, obsolescencia e informes HTML/JSON y despliegue azd. Bing Custom Search ha fallado al crearse en la suscripción del laboratorio con error500; no se sustituye por HTTP ni por Bing estándar. Mientras falte esa conexión, se pueden preparar fuentes reales pero no obtener una decisión final del recorrido. No está ready_for_test y no tiene QA PASS.
+**Estado: integración end-to-end pendiente.** La corrección r4 prepara el SKU G2/API2020-06-10 de Bing Custom Search, su instancia de dominios y el tratamiento correcto de sus citas. No se ha desplegado esta corrección: el último SHA servido y verificado es r3, 1760bb14f44f8b28c3cba7885451191b066a795d. Los tres intentos históricos usaron G1 y fallaron; G2/configuración y el recorrido con Luna aún requieren comprobación real. No está ready_for_test y no tiene QA PASS. [Diagnóstico y fuentes oficiales](docs/bing-setup.md).
 
 ## Requisitos
 
@@ -24,21 +24,23 @@ AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_LOCATION westeuro
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_RESOURCE_GROUP rg-django-evidence-reader
 az ad signed-in-user show --query id --output tsv
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set AZURE_PRINCIPAL_ID <object-id-del-usuario>
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set CLEANUP_AT <fecha-ISO-con-zona-de-tu-plan>
+AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set LAB_EXPIRES_AT <fin-ISO-del-consumo-autorizado>
 ```
 
-Sustituye los marcadores. Son identificadores públicos, no claves. Confirma la suscripción, región, cuota, presupuesto y grupo antes de efectos. Nunca uses otro laboratorio o un grupo compartido. No depende de archivos, endpoints o recursos privados del autor: las salidas de tu propio azd configuran los clientes.
+Sustituye los marcadores. Son identificadores y fechas públicos, no claves. Confirma la suscripción, región, cuota, presupuesto, grupo y ventana antes de efectos. LAB_EXPIRES_AT debe terminar como máximo en CLEANUP_AT; la caducidad de un grant reservado para cierre no amplía la ventana de consumo. Nunca uses otro laboratorio o un grupo compartido. No depende de archivos, endpoints o recursos privados del autor: las salidas de tu propio azd configuran los clientes.
 
 La copia Tester de este ciclo debe usar exactamente entorno `mvp-django-20261105-qa` y grupo `rg-mvp-django-20261105-qa`, con la suscripción de su plan aprobado. Implementer usa los nombres impl. Los recursos hijos se derivan del grupo/entorno, de modo que las copias no comparten IA, almacenamiento, identidad o web. No crees el grupo QA desde el rol Implementer.
 
 ## Aprovisionar y desplegar
 
-La configuración por defecto intenta también crear Bing Custom Search. En la suscripción donde se observó su fallo, para avanzar únicamente con la infraestructura independiente:
+La configuración por defecto crea Bing Custom Search G2, la instancia django-official limitada a Django/PyPI y su conexión de proyecto. Para aprovisionar únicamente los componentes independientes:
 
 ```sh
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd env set PROVISION_GROUNDING false
 ```
 
-Esto mantiene bloqueadas las llamadas del producto que necesitan grounding; no habilita un modo simulado. Cuando la creación de Bing esté disponible, establece true para aprovisionar ese recurso/conexión y completar su instancia, sin alterar el servicio ni el SKU aprobados.
+Esto mantiene bloqueadas las llamadas del producto que necesitan grounding; no habilita un modo simulado. Para el recorrido completo, establece PROVISION_GROUNDING true dentro de una ventana de despliegue autorizada. Bicep crea también la instancia; no requiere una configuración privada del autor ni sustituye el servicio.
 
 ```sh
 AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd provision --preview --no-prompt
@@ -75,7 +77,7 @@ La contraseña entra por getpass. El cliente mantiene una sesión en memoria y o
 
 1. Introduce una versión final, por ejemplo5.2.18. Rangos, prereleases, otros tipos y versiones inválidas se rechazan antes de llamadas pagadas.
 2. “Preparar lote oficial” obtiene documentos reales: archivo de seguridad, descargas/soporte, aviso del03/11/2026, PyPI para esa versión y notas5.2.19/6.0.10. Blob conserva documentos y snapshots; Table conserva punteros, sesiones, etapas y reservas. Se muestran URL/fecha/SHA-256 y fragmentos con elisiones explícitas. Un lote fechado no acredita cobertura de avisos posteriores.
-3. Con Bing disponible, “Buscar con Bing y extraer evidencia” inicia una sola etapa persistida. El agente usa Luna y la instancia oficial. Sus citas de páginas/consultas se conservan; HTTP no reemplaza la búsqueda. Un resultado sin búsqueda, sin cita de consulta o incompleto queda bloqueado.
+3. Con Bing disponible, “Buscar con Bing y extraer evidencia” inicia una sola etapa persistida. El agente usa Luna y la instancia oficial. Conserva las citas de páginas originales y los enlaces de consulta si el servicio los devuelve; Custom Search no exige ese enlace ni lo reconstruye desde URLs internas. HTTP no reemplaza la búsqueda. Un resultado sin búsqueda real, sin citas oficiales o incompleto queda bloqueado.
 4. Revisa el JSON por CVE y rama, confirma/corrige y explica el motivo. Campos críticos requieren fragmentos exactos del lote. El comparador usa tuplas numéricas: diferencia afectación documentada, corrección y aplicabilidad no resuelta. No inventa un límite inferior ni traslada parches de rama. Condiciones como GDAL desconocido permanecen abiertas.
    Una extracción original con campos inválidos se conserva y permite corrección humana sin otra búsqueda; nunca se usa para decidir hasta validarla. HTML y JSON distinguen los campos originales, la evidencia revisada y el motivo.
 5. “Solicitar decisión tipada” envía el estado revisado a la API systemone. Noul es una probabilidad0–1, choice conserva su opción/distribución y score su valor decimal/escala0–3. Sin evidencia suficiente no hay urgencia accionable. Los umbrales son una política de referencia sin calibración y nunca instalan una actualización.
@@ -109,7 +111,7 @@ La infraestructura web/datos es independiente del fallo Bing. Las aristas de inf
 
 [Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa Agents SDKv1 con max_prompt_tokens6000 y max_completion_tokens1000 por run (incluye razonamiento); es un límite agregado más estricto que la cota por invocación. La compatibilidad efectiva Luna+Bing sigue pendiente. El cliente retiene IDs antes/después de cada envío y valida uso/resultado. No se acepta output incompleto ni se amplían tokens automáticamente.
 
-Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo entero limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los límites del entorno por defecto son12/6; las asignaciones de ambos entornos y correcciones deben caber en el total. El ledger y la escala0–1 no son un hard cap de factura. La ventana de consumo termina09/11/2026 11:00Z para este laboratorio.
+Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo entero limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los límites del entorno por defecto son12/6; las asignaciones de ambos entornos y correcciones deben caber en el total. El ledger y la escala0–1 no son un hard cap de factura. El plan original fijó retirada09/11/2026 09:00Z y reservó hasta11:00Z para cierre/conciliación; esa vigencia no amplía el consumo. Los entornos propios deben fijar LAB_EXPIRES_AT y CLEANUP_AT según su plan.
 
 Para los cuatro casos por versión del Tester, su entorno aislado puede fijar MODEL_CALL_LIMIT=24 y BING_QUERY_LIMIT=12 mediante `azd env set` antes de provision. Junto a12/6 del Implementer reserva como máximo36 invocaciones/18 búsquedas; las correcciones y diagnósticos deben mantenerse dentro de40/24 conjuntos, leyendo los ledgers y sin reiniciarlos. No aumentar estos valores en un entorno ya desplegado para eludir una reserva agotada.
 

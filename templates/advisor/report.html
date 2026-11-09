@@ -48,4 +48,5 @@
 <p>Las descargas reflejan el estado de este informe, incluidas sus etapas incompletas y decisiones obsoletas.</p>
 {% if not download %}{% if job.stage == "sources_ready" or job.stage == "reviewed" or job.stage == "created" or job.stage == "source_failed" or job.stage == "awaiting_review" %}<button data-action="close">Cerrar este análisis sin nuevas llamadas</button>{% endif %}{% endif %}</section>
 {{job|json_script:"job-data"}}
+<footer><a href="https://privacy.microsoft.com/en-us/privacystatement" rel="noopener">Microsoft Privacy Statement</a></footer>
 </main>{% if not download %}<script src="{% static 'advisor/app.js' %}" defer></script>{% endif %}</body></html>

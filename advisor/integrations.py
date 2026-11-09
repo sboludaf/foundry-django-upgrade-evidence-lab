@@ -32,7 +32,7 @@ For fixed versions, preserve exact official patch. Include the queried branch an
 branch explicitly documented for that CVE. Conditions state is unknown, met or not_met;
 GDAL must stay unknown unless the user supplies its real version. Never infer environment facts.
 Critical quote must be an exact short substring of the provided source excerpts, with its URL.
-Do not invent quotations or build citations yourself. Preserve actual tool website/query citations.
+Do not invent quotations or build citations yourself. Preserve actual tool website citations.
 Support is {supported:true|false|null,source_url,quote}; null unless explicit official evidence.
 uncertainty is an array of short strings. No Markdown fences, explanations, or simulated sources.
 The user must review/correct this extraction before a separate Decision-1 call.
@@ -90,17 +90,14 @@ def read_grounding(client, job):
                     url = cite.get("url", "")
                     if allowed(url) or url.startswith("https://www.bing.com/search?"):
                         citations.append({"url": url, "title": cite.get("title", url)})
-    queries = []
-    for call in searches:
-        params = call.get("bing_custom_search", {})
-        args = params.get("requesturl") or params.get("request_url")
-        if args:
-            from urllib.parse import urlsplit, urlunsplit
-            parsed = urlsplit(args)
-            queries.append(urlunsplit(("https", "www.bing.com", "/search", parsed.query, "")))
+    # Custom Search requires the returned website references, not a search-page URL.
+    # Never transform an internal request URL into a public citation: it may carry
+    # service parameters or credentials, and is not a reference returned to users.
+    queries = [cite["url"] for cite in citations
+               if cite["url"].startswith("https://www.bing.com/search?")]
     raw = "\n".join(text)
-    if not queries and not any(c["url"].startswith("https://www.bing.com/search?") for c in citations):
-        raise AppError("query_citation_missing", "Falta la referencia de la consulta Bing exigida por el servicio.", 422)
+    if not any(allowed(cite["url"]) for cite in citations):
+        raise AppError("website_citation_missing", "Bing Custom Search no devolvió citas de fuentes oficiales.", 422)
     try:
         index = raw.index("{")
         extraction, _ = json.JSONDecoder().raw_decode(raw[index:])

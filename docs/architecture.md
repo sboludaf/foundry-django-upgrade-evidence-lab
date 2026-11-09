@@ -1,4 +1,4 @@
-# Arquitectura r3
+# Arquitectura desplegada r3 y corrección preparada r4
 
 Grupo propio Implementer: rg-mvp-django-20261105-impl; otra instalación debe usar otro grupo/entorno azd. Azure crea nombres de hijos distintos a partir de ambos identificadores.
 
@@ -23,3 +23,5 @@ La lectura de recursos no prueba inferencia ni compatibilidad. El despliegue de 
 El frontend llama sólo a su backend por HTTPS; tokens Azure/Bing no llegan al navegador. Clave Django en secretos del recurso, contraseña sólo como hash Table, sesiones de una hora revocables por generación. No hay registro público.
 
 Bing sigue como integración requerida sin sustitución. La evidencia HTTP es un complemento auténtico con fecha/hash. El resultado final requiere agente, grounding, revisión y Decision-1 reales.
+
+La corrección r4 prepara cuenta Custom Search G2 con API2020-06-10, instancia django-official por ARM2025-05-01-preview y conexión posterior. Es código preparado, no un servicio ya creado. El último despliegue comprobado sirve el SHA1760bb14f44f8b28c3cba7885451191b066a795d; todavía no sirve las correcciones r4. [Contrato y diagnóstico Bing](bing-setup.md).

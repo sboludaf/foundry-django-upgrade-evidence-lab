@@ -169,3 +169,57 @@ class RecoveryRules(SimpleTestCase):
                 pipeline.ground("owner", job["id"])
             self.assertEqual(error.exception.code, "grounding_unavailable")
             backend.reserve.assert_not_called()
+
+
+class BingReferences(SimpleTestCase):
+    def client_for(self, citations, searches=True, request_url=None):
+        from types import SimpleNamespace
+        client = MagicMock()
+        client.runs.get.return_value = SimpleNamespace(
+            status="completed", usage=SimpleNamespace(
+                as_dict=lambda: {"prompt_tokens": 100, "completion_tokens": 50}))
+        calls = [{"type": "bing_custom_search", "bing_custom_search": {
+            "requesturl": request_url}}] if searches else []
+        client.run_steps.list.return_value = [SimpleNamespace(
+            as_dict=lambda: {"step_details": {"tool_calls": calls}})]
+        payload = {"type": "text", "text": {
+            "value": '{"summary":"Development fixture only"}',
+            "annotations": [{"url_citation": cite} for cite in citations]}}
+        client.messages.list.return_value = [SimpleNamespace(
+            role="assistant", content=[SimpleNamespace(as_dict=lambda: payload)])]
+        return client
+
+    def read(self, client):
+        from advisor.integrations import read_grounding
+        return read_grounding(client, {"thread_id": "test-thread", "run_id": "test-run"})
+
+    def test_custom_search_accepts_original_website_citation_without_query_link(self):
+        url = "https://docs.djangoproject.com/en/dev/releases/5.2.19/#s-security"
+        result = self.read(self.client_for([{"url": url, "title": "Django release notes"}]))
+        self.assertEqual(result["citations"], [{"url": url, "title": "Django release notes"}])
+        self.assertEqual(result["query_urls"], [])
+
+    def test_internal_request_url_is_never_converted_to_a_public_citation(self):
+        result = self.read(self.client_for(
+            [{"url": URL, "title": "Development citation"}],
+            request_url="https://api.bing.microsoft.com/search?q=fixture&key=TEST_ONLY_NOT_A_CREDENTIAL"))
+        self.assertEqual(result["query_urls"], [])
+        self.assertNotIn("TEST_ONLY_NOT_A_CREDENTIAL", json.dumps(result))
+
+    def test_returned_query_reference_keeps_its_exact_url(self):
+        query = "https://www.bing.com/search?q=Django%205.2%20release&form=TEST_ONLY"
+        result = self.read(self.client_for([
+            {"url": URL, "title": "Development citation"},
+            {"url": query, "title": "Original returned query"}]))
+        self.assertEqual(result["query_urls"], [query])
+        self.assertIn({"url": query, "title": "Original returned query"}, result["citations"])
+
+    def test_citations_cannot_substitute_for_actual_search_steps(self):
+        with self.assertRaises(AppError) as error:
+            self.read(self.client_for([{"url": URL}], searches=False))
+        self.assertEqual(error.exception.code, "grounding_not_used")
+
+    def test_query_only_output_cannot_substitute_for_official_website_citations(self):
+        with self.assertRaises(AppError) as error:
+            self.read(self.client_for([{"url": "https://www.bing.com/search?q=test"}]))
+        self.assertEqual(error.exception.code, "website_citation_missing")

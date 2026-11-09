@@ -4,6 +4,10 @@ param location string = 'westeurope'
 param resourceGroupName string = 'rg-${environmentName}'
 param operatorPrincipalId string
 param provisionGrounding string = 'true'
+@description('Retirement timestamp from the approved plan. This tag does not schedule deletion.')
+param cleanupAt string = '2026-11-09T10:00:00+01:00'
+@description('End of paid analyses from the approved plan; defaults to the retirement deadline.')
+param labExpiresAt string = cleanupAt
 @allowed(['6', '12', '24'])
 param modelCallLimit string = '12'
 @allowed(['3', '6', '12'])
@@ -14,7 +18,7 @@ var tags = {
   'azd-env-name': environmentName
   'lab-id': '2026-11-05-foundry-django-upgrade-evidence'
   'proposal-hash': '77d253e1f6a9fa26b0b597b999415613111e11a9b21bef70be053d2f38688542'
-  'cleanup-at': '2026-11-09T10:00:00+01:00'
+  'cleanup-at': cleanupAt
 }
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
@@ -40,7 +44,7 @@ output AZURE_AI_ENDPOINT string = core.outputs.endpoint
 output AZURE_AI_MODEL_DEPLOYMENT_NAME string = 'django-luna'
 output AZURE_DECISION_DEPLOYMENT string = 'django-decision'
 output BING_CONNECTION_ID string = core.outputs.bingConnectionId
-output BING_CUSTOM_SEARCH_INSTANCE_NAME string = 'django-official'
+output BING_CUSTOM_SEARCH_INSTANCE_NAME string = core.outputs.bingInstanceName
 output BING_RESOURCE_ID string = core.outputs.bingId
 
 module web './web.bicep' = {
@@ -57,6 +61,7 @@ module web './web.bicep' = {
     djangoSecret: djangoSecret
     modelCallLimit: modelCallLimit
     bingQueryLimit: bingQueryLimit
+    labExpiresAt: labExpiresAt
   }
 }
 output AZURE_CONTAINER_REGISTRY_NAME string = web.outputs.registryName
@@ -67,3 +72,4 @@ output AZURE_STORAGE_ACCOUNT string = web.outputs.storageName
 output AZURE_CLIENT_ID string = web.outputs.identityClientId
 output AZURE_CONTAINER_APP_ENVIRONMENT_NAME string = web.outputs.environmentName
 output AZURE_CONTAINER_APP_ENVIRONMENT_ID string = web.outputs.environmentId
+output LAB_EXPIRES_AT string = labExpiresAt

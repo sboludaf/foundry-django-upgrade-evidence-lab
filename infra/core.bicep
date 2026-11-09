@@ -56,13 +56,26 @@ resource operatorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '53ca6127-db72-4b80-b1b0-d745d6d5456d')
   }
 }
-resource bing 'Microsoft.Bing/accounts@2025-05-01-preview' = if (provisionGrounding == 'true') {
+// Azure-Samples/foundry-bing-custom-search-arm: Custom Search uses G2, not G1.
+resource bing 'Microsoft.Bing/accounts@2020-06-10' = if (provisionGrounding == 'true') {
   name: 'bingdjango${suffix}'
   location: 'global'
   tags: tags
   kind: 'Bing.GroundingCustomSearch'
-  sku: { name: 'G1' }
+  sku: { name: 'G2' }
   properties: {}
+}
+resource bingConfiguration 'Microsoft.Bing/accounts/customSearchConfigurations@2025-05-01-preview' = if (provisionGrounding == 'true') {
+  parent: bing
+  name: 'django-official'
+  properties: {
+    allowedDomains: [
+      { domain: 'docs.djangoproject.com', includeSubPages: true, boostLevel: 'Default' }
+      { domain: 'www.djangoproject.com', includeSubPages: true, boostLevel: 'Default' }
+      { domain: 'pypi.org/project/Django', includeSubPages: true, boostLevel: 'Default' }
+    ]
+    blockedDomains: []
+  }
 }
 resource connection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01' = if (provisionGrounding == 'true') {
   parent: project
@@ -71,9 +84,10 @@ resource connection 'Microsoft.CognitiveServices/accounts/projects/connections@2
     authType: 'ApiKey'
     category: 'GroundingWithCustomSearch'
     target: 'https://api.bing.microsoft.com/'
-    credentials: { key: listKeys(bing.id, '2025-05-01-preview').key1 }
+    credentials: { key: listKeys(bing.id, '2020-06-10').key1 }
     metadata: { ApiType: 'Azure', ResourceId: bing.id, Location: 'global' }
   }
+  dependsOn: [bingConfiguration]
 }
 output accountName string = account.name
 output endpoint string = 'https://${account.name}.services.ai.azure.com'
@@ -81,3 +95,4 @@ output projectEndpoint string = 'https://${account.name}.services.ai.azure.com/a
 output projectId string = project.id
 output bingConnectionId string = provisionGrounding == 'true' ? connection.id : ''
 output bingId string = provisionGrounding == 'true' ? bing.id : ''
+output bingInstanceName string = provisionGrounding == 'true' ? bingConfiguration.name : ''
