@@ -7,6 +7,11 @@ import urllib.request
 
 from azure.ai.agents import AgentsClient
 from azure.ai.agents.models import BingCustomSearchTool
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import (
+    PromptAgentDefinition, Reasoning, BingCustomSearchPreviewTool,
+    BingCustomSearchToolParameters, BingCustomSearchConfiguration,
+)
 
 from .errors import AppError
 from .repository import credential
@@ -37,6 +42,8 @@ Support is {supported:true|false|null,source_url,quote}; null unless explicit of
 uncertainty is an array of short strings. No Markdown fences, explanations, or simulated sources.
 The user must review/correct this extraction before a separate Decision-1 call.
 The response must fit within the total completion budget, including reasoning.
+Keep summary and uncertainty brief, branch quotes as short as the official text permits,
+and omit no required fields. Return at most 750 output tokens so the JSON stays complete.
 """
 
 
@@ -138,6 +145,94 @@ def read_grounding(client, job):
         raise AppError("invalid_extraction", "El agente no devolvió JSON completo. No se repetirá automáticamente.", 422) from exc
     return {"extraction": extraction, "citations": citations, "query_urls": queries,
             "usage": usage, "searches": len(searches), "raw_text": raw}
+
+
+def prompt_project():
+    endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
+    if not endpoint:
+        raise AppError("needs_configuration", "Configura el proyecto Foundry del entorno.", 503)
+    return AIProjectClient(endpoint=endpoint, credential=credential(),
+                           allow_preview=True, retry_total=0)
+
+
+def prompt_grounding_tool():
+    connection = os.getenv("BING_CONNECTION_ID")
+    if not connection:
+        raise AppError("grounding_unavailable", "Bing Custom Search aún no está aprovisionado y conectado.", 503)
+    return BingCustomSearchPreviewTool(bing_custom_search_preview=BingCustomSearchToolParameters(
+        search_configurations=[BingCustomSearchConfiguration(
+            project_connection_id=connection,
+            instance_name=os.environ["BING_CUSTOM_SEARCH_INSTANCE_NAME"], count=1)]))
+
+
+def prompt_application_agent(project, tool):
+    # The operator must reconcile/delete a legacy agent before migration, never
+    # silently leave two agents or adopt an unrelated agent in this project.
+    if list(agents().list_agents(limit=100)):
+        raise AppError("agent_migration_required", "Concilia el agente clásico antes de crear el agente Responses.", 409)
+    definition = PromptAgentDefinition(model=os.environ["AZURE_AI_MODEL_DEPLOYMENT_NAME"],
+        instructions=INSTRUCTIONS, tools=[tool], reasoning=Reasoning(effort="none"))
+    existing = list(project.agents.list(limit=100))
+    if existing:
+        if len(existing) != 1 or existing[0].name != AGENT_NAME:
+            raise AppError("agent_conflict", "El proyecto debe contener sólo el agente dedicado de esta aplicación.", 409)
+        agent = project.agents.get_version(AGENT_NAME, existing[0].versions.latest.version)
+        if (agent.metadata or {}).get("application") != AGENT_APP:
+            raise AppError("agent_conflict", "El agente existente no pertenece a esta aplicación.", 409)
+        actual, expected = agent.definition.as_dict(), definition.as_dict()
+        if any(_tool_shape(actual.get(k)) != _tool_shape(expected.get(k))
+               for k in ("kind", "model", "instructions", "tools", "reasoning")):
+            raise AppError("agent_configuration", "La configuración conservada del agente requiere conciliación del operador.", 409)
+        return agent
+    return project.agents.create_version(agent_name=AGENT_NAME, definition=definition,
+        metadata={"application": AGENT_APP})
+
+
+def response_client(project):
+    return project.get_openai_client(max_retries=0, timeout=60)
+
+
+def read_response(client, job):
+    response = client.responses.retrieve(job["response_id"])
+    if response.status in ("queued", "in_progress"):
+        return None
+    if response.status != "completed":
+        code = getattr(response.error, "code", None) if response.error else None
+        raise AppError("grounding_incomplete", "El agente Responses terminó sin evidencia completa: "
+                       + str(response.status) + (" (" + str(code) + ")" if code else "") + ".", 502)
+    data = response.model_dump()
+    searches = [item for item in data.get("output", [])
+                if item.get("type") in ("bing_custom_search_call", "bing_custom_search_preview_call")]
+    if not searches:
+        raise AppError("grounding_not_used", "La respuesta no acredita una búsqueda Bing Custom Search.", 422)
+    if len(searches) > 3:
+        raise AppError("grounding_limit", "La respuesta superó la reserva de búsquedas.", 502)
+    usage = data.get("usage") or {}
+    if usage.get("input_tokens", 6001) > 6000 or usage.get("output_tokens", 1001) > 1000:
+        raise AppError("token_limit", "Uso del agente fuera del límite o no acreditado.", 502)
+    text, citations = [], []
+    for item in data.get("output", []):
+        if item.get("type") != "message" or item.get("role") != "assistant":
+            continue
+        for part in item.get("content", []):
+            if part.get("type") != "output_text":
+                continue
+            text.append(part.get("text", ""))
+            for cite in part.get("annotations", []):
+                url = cite.get("url", "")
+                if cite.get("type") == "url_citation" and (allowed(url) or url.startswith("https://www.bing.com/search?")):
+                    citations.append({"url": url, "title": cite.get("title", url)})
+    if not any(allowed(cite["url"]) for cite in citations):
+        raise AppError("website_citation_missing", "Bing Custom Search no devolvió citas de fuentes oficiales.", 422)
+    raw = "\n".join(text)
+    try:
+        extraction, _ = json.JSONDecoder().raw_decode(raw[raw.index("{"):])
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise AppError("invalid_extraction", "El agente no devolvió JSON completo. No se repetirá automáticamente.", 422) from exc
+    return {"extraction": extraction, "citations": citations,
+            "query_urls": [c["url"] for c in citations if c["url"].startswith("https://www.bing.com/search?")],
+            "usage": usage, "searches": len(searches), "raw_text": raw,
+            "api": "responses", "response_id": response.id}
 
 
 def finite(value, low, high):

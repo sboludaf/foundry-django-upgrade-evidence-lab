@@ -290,3 +290,61 @@ class SingleAgentBudget(SimpleTestCase):
                 application_agent(client, tool)
         self.assertEqual(error.exception.code, "agent_configuration")
         client.create_agent.assert_not_called()
+
+
+class ResponsesRecovery(SimpleTestCase):
+    def client_for(self, *, search=True, output_tokens=200, citations=True):
+        from types import SimpleNamespace
+        data = {"output": ([{"type": "bing_custom_search_call", "status": "completed"}] if search else []) + [
+            {"type": "message", "role": "assistant", "content": [{"type": "output_text",
+                "text": json.dumps(EVIDENCE), "annotations": [{"type": "url_citation", "url": URL,
+                "title": "Original returned title"}] if citations else []}]}],
+            "usage": {"input_tokens": 1100, "output_tokens": output_tokens}}
+        client = MagicMock()
+        client.responses.retrieve.return_value = SimpleNamespace(id="test-response", status="completed",
+            error=None, model_dump=lambda: data)
+        return client
+
+    def test_response_requires_real_tool_call_and_official_citation(self):
+        from advisor.integrations import read_response
+        for kwargs, code in (({"search": False}, "grounding_not_used"),
+                             ({"citations": False}, "website_citation_missing")):
+            with self.assertRaises(AppError) as error:
+                read_response(self.client_for(**kwargs), {"response_id": "test-response"})
+            self.assertEqual(error.exception.code, code)
+
+    def test_complete_response_preserves_original_citations_and_usage(self):
+        from advisor.integrations import read_response
+        result = read_response(self.client_for(), {"response_id": "test-response"})
+        self.assertEqual(result["extraction"], EVIDENCE)
+        self.assertEqual(result["citations"], [{"url": URL, "title": "Original returned title"}])
+        self.assertEqual(result["searches"], 1)
+        self.assertEqual(result["usage"]["output_tokens"], 200)
+
+    def test_total_output_including_reasoning_is_bounded(self):
+        from advisor.integrations import read_response
+        with self.assertRaises(AppError) as error:
+            read_response(self.client_for(output_tokens=1001), {"response_id": "test-response"})
+        self.assertEqual(error.exception.code, "token_limit")
+
+    def test_uncertain_decision_never_reconciles_the_older_response(self):
+        job = RecoveryRules().job()
+        job.update(stage="uncertain", grounding_api="responses", response_id="test-response",
+                   effect=job["id"] + ":decision:1")
+        backend, _ = fixture(job)
+        with patch("advisor.pipeline.store", return_value=backend), patch("advisor.pipeline.read_response") as read:
+            result = pipeline.reconcile("owner", job["id"])
+        self.assertEqual(result["stage"], "uncertain")
+        read.assert_not_called()
+        backend.reserve.assert_not_called()
+
+    def test_uncertain_grounding_with_saved_id_only_reads_existing_response(self):
+        job = RecoveryRules().job()
+        job.update(stage="uncertain", grounding_api="responses", response_id="test-response",
+                   effect=job["id"] + ":grounding")
+        backend, _ = fixture(job)
+        with patch("advisor.pipeline.store", return_value=backend), patch("advisor.pipeline.prompt_project"), patch(
+                "advisor.pipeline.response_client", return_value=self.client_for()):
+            result = pipeline.reconcile("owner", job["id"])
+        self.assertEqual(result["stage"], "awaiting_review")
+        backend.reserve.assert_not_called()

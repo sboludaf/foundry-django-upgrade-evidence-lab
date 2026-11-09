@@ -5,7 +5,7 @@ description = "Evidence-first Django upgrade advisor with an Azure Foundry decis
 requires-python = ">=3.11"
 dependencies = [
   "azure-ai-agents>=1.2.0b1,<2",
-  "azure-ai-projects==2.0.0b2",
+  "azure-ai-projects==2.10.0",
   "azure-data-tables>=12.7.0",
   "azure-identity>=1.27.0",
   "azure-storage-blob>=12.31.1",

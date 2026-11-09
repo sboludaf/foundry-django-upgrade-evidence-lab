@@ -10,7 +10,7 @@ Con PROVISION_GROUNDING=true, Bicep prepara la cuenta G2, la configuración djan
 
 Custom Search debe conservar las citas de páginas originales. No exige un enlace público a la consulta: esa obligación específica pertenece a Bing Search estándar. Se conservan los enlaces de consulta sólo si el servicio los devuelve; no se reconstruyen desde requesturl ni se convierten parámetros internos en referencias.
 
-La aplicación exige un paso real bing_custom_search, uso dentro de límites y al menos una cita oficial. Mantiene URL y título de las referencias aceptadas en su forma original. La captura HTTP oficial complementa el grounding; no lo sustituye. [Requisitos oficiales de visualización](https://www.microsoft.com/en-us/bing/apis/grounding-legal-enterprise#appendix-to-tou-grounding-with-bing-search-and-grounding-with-bing-custom-search-use-and-display-requirements).
+La aplicación exige una llamada real de Bing Custom Search, uso dentro de límites y al menos una cita oficial. El agente actual configura bing_custom_search_preview por Responses; el lector clásico se conserva sólo para históricos. Mantiene URL y título de las referencias aceptadas en su forma original. La captura HTTP oficial complementa el grounding; no lo sustituye. [Requisitos oficiales de visualización](https://www.microsoft.com/en-us/bing/apis/grounding-legal-enterprise#appendix-to-tou-grounding-with-bing-search-and-grounding-with-bing-custom-search-use-and-display-requirements).
 
 ## Qué demuestra cada comprobación
 
@@ -22,6 +22,6 @@ La lectura actual indica suscripción Enabled, PayAsYouGo_2014-09-01, spendingLi
 
 ## Provisión observada y verificación del recorrido
 
-El09/11/2026 azd provision terminó correctamente conG2/API2020-06-10, configuración y conexión. Los GET confirman cuenta Succeeded, los tres dominios permitidos y authType ApiKey/category GroundingWithCustomSearch. La continuación fue registrada y aprobada en MVP Labs con nueva ventana hasta11/11 10:00Europe/Madrid. El agente django-luna con herramienta bing_custom_search se creó y se reutiliza; no hay un agente nuevo por análisis. Estos hechos de configuración no sustituyen las llamadas reales del recorrido ni la QA independiente.
+El09/11/2026 azd provision terminó correctamente conG2/API2020-06-10, configuración y conexión. Los GET confirman cuenta Succeeded, los tres dominios permitidos y authType ApiKey/category GroundingWithCustomSearch. La continuación fue registrada y aprobada en MVP Labs con nueva ventana hasta11/11 10:00Europe/Madrid. El primer run clásico terminó failed/server_error con0 tokens y0 pasos. Se conservó su evidencia y reserva y se migró a un único agente prompt actual de Projects2.10/Responses, manteniendo modelo, conexión e instancia. Estos hechos de configuración no sustituyen las llamadas reales del recorrido ni la QA independiente.
 
 Para consumir y comprobar el producto: provision primero, deploy después, comprobar SHA servido, inicializar acceso protegido y completar versión → fuentes reales → agente Luna/Bing → revisión humana → Decision-1 → informes. Sólo esa evidencia permite entregar ready_for_test y congelar un SHA para reproducción independiente.

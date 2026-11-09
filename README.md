@@ -6,7 +6,7 @@ Requiere una instalación propia en Azure con Bing Custom Search G2, proyecto Fo
 
 ## Requisitos
 
-Acceso al repositorio GitHub privado; Git, Python3.11+, uv, Azure CLI, azd1.34.2 o compatible. No requiere Docker local: la imagen se construye en ACR. Las versiones de Python/SDK están fijadas por uv.lock y requirements.lock, incluidos Django5.2.19, Azure Agents1.2.0b6 y Projects2.0.0b2. No copiar código del repositorio de referencia: no se identificó licencia.
+Acceso al repositorio GitHub privado; Git, Python3.11+, uv, Azure CLI, azd1.34.2 o compatible. No requiere Docker local: la imagen se construye en ACR. Las versiones de Python/SDK están fijadas por uv.lock y requirements.lock, incluidos Django5.2.19 y Projects2.10.0. Agents1.2.0b6 se conserva sólo para leer históricos clásicos y detectar una migración pendiente. No copiar código del repositorio de referencia: no se identificó licencia.
 
 Azure propio: una suscripción con presupuesto y cuota para Luna y Decision-1 en West Europe, permisos para crear recursos y asignar roles sobre su grupo exclusivo. El operador necesita acceso de datos a su Storage; el Bicep concede sólo Blob/Table en esa cuenta. La identidad de la web recibe Blob/Table propios, Azure AI User en su AIServices y AcrPull en su ACR. Sin registros de aplicación Entra, claves de Storage o Log Analytics.
 
@@ -51,6 +51,8 @@ AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd deploy web --no-prompt
 
 Primero provision, después deploy. No se ha validado azd up. `azd package` con remoteBuild puede devolver “No artifacts”; eso no acredita una imagen: el build remoto ocurre en deploy. Comprueba el resultado ACR y la revisión Container Apps. El argumento SOURCE_COMMIT es público; queda en el label OCI y en /health/. No introduzcas secretos como argumentos de build.
 
+Si azd falla al leer el log ACR con BlobNotFound, consulta el mismo task con `az acr task show-run`. No repitas el build: cuando ese task confirme Succeeded, comprueba su etiqueta/digest y despliega el artefacto existente con `AZURE_DEV_USER_AGENT=microsoft_foundry_skill azd deploy web --from-package <imagen-ACR-exacta> --no-prompt`. Un task Queued o Running todavía no acredita una imagen.
+
 Al actualizar una instalación existente, fija SERVICE_WEB_IMAGE a la imagen actual de esa misma Container App antes de provision. Así se conserva el producto real durante el cambio de infraestructura. Usa sólo el grupo y recursos de tu entorno; deploy publicará después la imagen del SHA nuevo.
 
 Los outputs SERVICE_WEB_ENDPOINT_URL y AZURE_STORAGE_ACCOUNT pertenecen a tu instalación. Azure mantiene la clave Django como secreto del recurso, sin outputs; las claves locales de AIServices y Storage están deshabilitadas. .azure y .env están excluidos de Git/Docker. `.env.example` documenta nombres públicos; no se cargan archivos .env automáticamente.
@@ -89,7 +91,9 @@ El lote de aceptación se documenta en docs/acceptance-corpus.json; sus expectat
 
 ## Errores y recuperación
 
-Cada solicitud usa un UUID idempotente. “Consultar la etapa existente” sólo lee un run persistido; no vuelve a crearlo. Los SDK de modelo tienen retry_total0; no hay reintentos pagados automáticos. Ante timeout se conserva etapa/ID y reserva. Si la API de decisión no permite recuperar una respuesta incierta, no se reenvía esa etapa.
+Cada solicitud usa un UUID idempotente. “Consultar la etapa existente” sólo lee la respuesta persistida; no vuelve a crearla. Azure usa retry_total0 y el cliente Responses max_retries0. El ID se guarda desde el primer evento response.created, con ejecución background y store; se recupera por GET aunque se cierre el stream. Ante timeout sin ID se conserva la incertidumbre y la reserva, sin reenviar. Una decisión incierta tampoco se recupera volviendo a leer la extracción anterior ni se reenvía.
+
+Una instalación nueva crea un único agente prompt y lo reutiliza, fijando su versión en cada respuesta. Si existe un agente clásico, se bloquea la migración automática: el operador debe comprobar sus runs terminales, conservar definición/evidencia y retirar sólo ese agente propio antes de activar el nuevo. Nunca se adoptan agentes ajenos ni se mantienen dos agentes para el mismo entorno.
 
 Un error de fuente deja un fallo recuperable sin llamadas a modelos. Puedes cerrar un análisis que no esté activo/incierto para liberar su bloqueo. Una operación incierta requiere conciliación del operador antes de otra ejecución. La ausencia de almacenamiento o Bing devuelve un mensaje específico, sin resultado inventado.
 
@@ -111,7 +115,7 @@ El diagrama representa los servicios configurados. El resultado de una consulta 
 
 ## Adaptaciones y límites
 
-[Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa AgentsClient del SDKv1/API2025-05-15-preview directamente, con max_prompt_tokens6000 y max_completion_tokens1000 por run(incluye razonamiento); es un límite agregado más estricto que la cota por invocación. Compatibilidad y resultado se comprueban con una llamada real, no por catálogo. El cliente retiene IDs, exige uso/citas y permite releer el mismo run tras un fallo de interpretación. No acepta output incompleto ni amplía tokens o reenvía inferencia automáticamente.
+[Tutorial base](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/build-a-grounded-package-upgrade-advisor-with-microsoft-decision-1/4568374). GPT-6 Luna2026-09-22 sustituye al modelo generativo del ejemplo por selección de la propuesta. Se usa el agente prompt actual de Projects2.10/APIv1 y Responses, con bing_custom_search_preview, max_tool_calls1, count1, max_output_tokens1000(incluye razonamiento) y effort none para la extracción compacta. El contexto propio se acota a8000bytes y se rechaza una respuesta con uso agregado superior a6000 tokens de entrada o1000 de salida. El servicio incorpora contexto Bing: no existe un límite de entrada equivalente a max_prompt_tokens en Responses y esa comprobación de uso no es un hard cap de factura. Compatibilidad y resultado se comprueban con una llamada real, no por catálogo. El cliente retiene IDs, exige uso/citas y permite releer la misma respuesta tras un fallo de interpretación. No acepta output incompleto ni amplía tokens o reenvía inferencia automáticamente. [Migración oficial](https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/migrate).
 
 Cada entorno reserva conservadoramente hasta5 llamadas internas/3 búsquedas por grounding y1 por decisión; su ledger persiste entre reinicios/runs. El ciclo limita40 invocaciones y24 búsquedas, incluyendo internas/diagnósticos. Los valores por defecto son12/6. La continuación aprobada asigna16/6 al autor y24/12 al Tester: las2 llamadas históricas ya están en el ledger del autor, por lo que quedan como máximo38 nuevas entre ambos entornos. No reiniciar contadores ni aumentar límites para eludir reservas. El ledger y escala0–1 no son un hard cap de factura. El consumo termina11/11/2026 09:00Z; el cierre hasta11:00Z no permite nuevas llamadas. Cada instalación propia debe fijar sus fechas y presupuesto.
 

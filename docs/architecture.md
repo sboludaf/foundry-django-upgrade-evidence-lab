@@ -18,7 +18,7 @@ flowchart LR
   W --> D[Microsoft-Decision-1]
 ```
 
-El aprovisionamiento configuró Bing y la conexión; el agente creado conserva el modelo django-luna y la herramienta bing_custom_search. Crear recursos no prueba la respuesta: el recorrido real y el SHA servido se comprueban por separado. Ninguna revisión hereda QA.
+El aprovisionamiento configuró Bing y la conexión. El agente prompt django-upgrade-evidence:1 conserva el modelo django-luna y la herramienta bing_custom_search_preview. Projects2.10/APIv1 y Responses reemplazan al API clásico tras un run fallido de cero tokens, sin pasos de búsqueda; se archivaron su definición/IDs y se retiró aquel agente antes de crear el nuevo. Sólo hay un agente activo. Cada análisis persiste versión, conversación y response_id desde el primer evento, para conciliar por GET. Crear recursos no prueba la respuesta: el recorrido real y el SHA servido se comprueban por separado. Ninguna revisión hereda QA.
 
 El navegador sólo llama al backend. La UAMI accede a sus recursos por Entra; la clave Bing permanece en la conexión gestionada por Azure y no llega al navegador ni a outputs. Django usa un secreto del recurso, el propietario un hash en Table y sesiones revocables de una hora. No hay registro público.
 

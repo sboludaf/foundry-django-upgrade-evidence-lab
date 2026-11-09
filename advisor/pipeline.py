@@ -7,7 +7,8 @@ import uuid
 
 from .domain import compare, validate_evidence, version, decision_warnings
 from .errors import AppError
-from .integrations import agents, grounding_tool, application_agent, read_grounding, call_decision, decision_body
+from .integrations import (agents, read_grounding, call_decision, decision_body,
+    prompt_project, prompt_grounding_tool, prompt_application_agent, response_client, read_response)
 from .repository import store
 from .sources import collect
 
@@ -62,17 +63,18 @@ def ground(owner, job_id):
     job, etag = backend.job(job_id, owner)
     if job["stage"] != "sources_ready":
         raise AppError("stage_locked", "La etapa ya se inició o el lote no está listo. Reconcilia antes de continuar.")
-    tool = grounding_tool()  # Missing Bing must not consume quota or create agents.
+    tool = prompt_grounding_tool()  # Missing Bing must not consume quota or create agents.
     backend.acquire(job_id)
     step_id = job_id + ":grounding"
     backend.reserve(job_id, step_id, models=5, searches=3)
     job["stage"], job["effect"] = "grounding_creating_agent", step_id
     backend.save_job(job, etag)
-    client = agents()
+    project = prompt_project()
     try:
-        agent = application_agent(client, tool)
+        agent = prompt_application_agent(project, tool)
         job, etag = backend.job(job_id, owner)
-        job["agent_id"], job["stage"] = agent.id, "grounding_creating_thread"
+        job.update(agent_id=agent.id, agent_name=agent.name, agent_version=agent.version,
+                   grounding_api="responses", stage="grounding_creating_conversation")
         backend.save_job(job, etag)
         context_sources = []
         target_branch = ".".join(job["version"].split(".")[:2])
@@ -85,19 +87,28 @@ def ground(owner, job_id):
             context_sources.append({"url": doc["url"], "excerpt": doc["excerpt"][:limit]})
         context = json.dumps({"version": job["version"], "batch": job["batch_hash"],
                              "sources": context_sources}, ensure_ascii=False)
-        if len(context.encode()) > 14_000:
+        if len(context.encode()) > 8_000:
             raise AppError("grounding_input_limit", "El lote es demasiado grande para el presupuesto de entrada.", 413)
-        thread = client.threads.create(messages=[{"role": "user", "content": context}])
+        client = response_client(project)
+        conversation = client.conversations.create(metadata={"job": job_id})
         job, etag = backend.job(job_id, owner)
-        job["thread_id"], job["stage"] = thread.id, "grounding_sending"
+        job["conversation_id"], job["stage"] = conversation.id, "grounding_sending"
         backend.save_job(job, etag)
-        run = client.runs.create(thread_id=thread.id, agent_id=agent.id,
-                                max_prompt_tokens=6000, max_completion_tokens=1000,
-                                parallel_tool_calls=False, metadata={"job": job_id},
-                                tool_choice={"type": "bing_custom_search"})
-        job, etag = backend.job(job_id, owner)
-        job["run_id"], job["stage"] = run.id, "grounding_running"
-        backend.save_job(job, etag)
+        # Persist the response ID at the first streamed event. Background work
+        # survives disconnects. A lost POST without an ID is blocked, not resent.
+        with client.responses.create(input=context, conversation=conversation.id,
+                extra_body={"agent_reference": {"name": agent.name, "version": agent.version, "type": "agent_reference"}},
+                background=True, store=True, stream=True, max_output_tokens=1000,
+                max_tool_calls=1, parallel_tool_calls=False, metadata={"job": job_id},
+                tool_choice="required") as stream:
+            for event in stream:
+                if event.type == "response.created":
+                    job, etag = backend.job(job_id, owner)
+                    job["response_id"], job["stage"] = event.response.id, "grounding_running"
+                    backend.save_job(job, etag)
+                    break
+            else:
+                raise AppError("grounding_uncertain", "La respuesta no confirmó su ID; no se reenviará.", 502)
         return job
     except Exception as exc:
         job, etag = backend.job(job_id, owner)
@@ -112,6 +123,11 @@ def ground(owner, job_id):
 def reconcile(owner, job_id):
     backend = store()
     job, etag = backend.job(job_id, owner)
+    if (job["stage"] == "uncertain" and job.get("response_id")
+            and job.get("effect") == job_id + ":grounding"):
+        job["stage"] = "grounding_running"
+        backend.save_job(job, etag)
+        job, etag = backend.job(job_id, owner)
     if job["stage"] == "uncertain" and job.get("thread_id") and not job.get("run_id"):
         # A lost response to runs.create is reconciled by metadata, never repeated.
         matches = [r for r in agents().runs.list(thread_id=job["thread_id"], limit=100)
@@ -123,7 +139,8 @@ def reconcile(owner, job_id):
     if job["stage"] not in ("grounding_running", "grounding_failed"):
         return job
     try:
-        result = read_grounding(agents(), job)
+        result = (read_response(response_client(prompt_project()), job)
+                  if job.get("grounding_api") == "responses" else read_grounding(agents(), job))
         if result is None:
             return job
         job["grounding"] = result
