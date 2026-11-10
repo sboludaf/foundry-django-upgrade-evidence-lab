@@ -7,7 +7,21 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from pathlib import Path
 from html.parser import HTMLParser
+
+
+def load_review(path):
+    filename = Path(path).expanduser()
+    if filename.stat().st_size > 65536:
+        raise ValueError("El archivo de revisión supera 64 KiB.")
+    try:
+        value = json.loads(filename.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ValueError("No se pudo leer un objeto JSON UTF-8 de revisión.") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("issues"), list):
+        raise ValueError("El archivo debe contener sólo la evidencia (summary, issues, support, uncertainty).")
+    return value
 
 
 class CSRF(HTMLParser):
@@ -60,7 +74,21 @@ class Client:
                 return content.decode()
         except urllib.error.HTTPError as exc:
             # Never echo request bodies, cookies or authorization.
-            raise RuntimeError("La aplicación respondió HTTP " + str(exc.code) + "; consulta la etapa antes de repetir.") from None
+            recovery = {400: "Corrige la entrada antes de enviarla.", 401: "Inicia una sesión nueva.",
+                        403: "Inicia una sesión nueva.", 409: "Consulta show y reconcilia la etapa existente.",
+                        422: "Corrige los campos indicados; no repitas grounding.",
+                        413: "Reduce el texto conservando citas y datos críticos."}.get(exc.code, "Consulta show antes de repetir la operación.")
+            codes = {"invalid_input", "invalid_evidence", "unverified_claim", "unverified_branch", "unverified_fix",
+                     "unverified_range", "wrong_branch", "unverified_condition", "unverified_support", "review_reason",
+                     "review_required", "concurrent_change", "stage_locked", "environment_evidence", "decision_input_limit"}
+            detail = ""
+            try:
+                error = json.loads(exc.read(8192))
+                if error.get("code") in codes and isinstance(error.get("error"), str):
+                    detail = " [" + error["code"] + "] " + "".join(c for c in error["error"][:500] if c.isprintable())
+            except (ValueError, AttributeError):
+                pass
+            raise RuntimeError("HTTP " + str(exc.code) + detail + " " + recovery) from None
 
     def login(self, username, password):
         self.request("/login/")
@@ -93,8 +121,8 @@ def main():
                 if command == "show":
                     print(json.dumps(client.request("/api/reports/" + job_id + "/"), ensure_ascii=False, indent=2))
                 elif command == "review":
-                    print("Revisa el JSON original en la web. Pega los campos de evidencia JSON en una línea; no se confirman automáticamente.")
-                    evidence = json.loads(input("Evidencia revisada: "))
+                    print("En la web puedes revisar la tabla sin editar JSON. Para esta interfaz, guarda sólo la evidencia revisada en un archivo UTF-8; nunca credenciales.")
+                    evidence = load_review(input("Ruta del archivo JSON revisado: "))
                     current = client.request("/api/reports/" + job_id + "/")
                     print(client.request("/api/jobs/" + job_id + "/review/", {
                         "evidence": evidence, "reason": input("Motivo de revisión: "),
@@ -103,7 +131,7 @@ def main():
                     print(client.request("/api/jobs/" + job_id + "/" + command + "/", {})["stage"])
                 else:
                     print("Acción no reconocida.")
-        except (ValueError, RuntimeError) as error:
+        except (OSError, ValueError, RuntimeError) as error:
             print(str(error))
 
 

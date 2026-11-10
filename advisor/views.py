@@ -14,6 +14,7 @@ from . import pipeline
 from .auth import COOKIE, login_owner, logout_owner, owner_required
 from .errors import AppError
 from .repository import store
+from .reporting import report_payload, STATES
 
 
 def errors(view):
@@ -109,7 +110,7 @@ def action(request, report_id, operation):
         job = pipeline.abandon(request.owner, job_id)
     else:
         raise AppError("not_found", "Operación desconocida.", 404)
-    return JsonResponse(job)
+    return JsonResponse(report_payload(job))
 
 
 @errors
@@ -117,7 +118,7 @@ def action(request, report_id, operation):
 @owner_required
 def report_json(request, report_id):
     job, _ = store().job(str(report_id), request.owner)
-    response = JsonResponse(job, json_dumps_params={"ensure_ascii": False})
+    response = JsonResponse(report_payload(job), json_dumps_params={"ensure_ascii": False})
     response["Content-Disposition"] = 'attachment; filename="django-' + str(report_id) + '.json"'
     return response
 
@@ -128,9 +129,12 @@ def report_json(request, report_id):
 @ensure_csrf_cookie
 def report_html(request, report_id):
     job, _ = store().job(str(report_id), request.owner)
-    draft = job["reviewed"] or job.get("original_validated") or job.get("original")
+    job = report_payload(job)
+    draft = job.get("review_proposal")
+    rows = [{**issue, "comparison_label": STATES[result["state"]]}
+            for issue, result in zip((draft or {}).get("issues", []), job.get("proposal_comparison", {}).get("issues", []))]
     download = request.GET.get("download") == "1"
-    response = render(request, "advisor/report.html", {"job": job, "draft": json.dumps(draft, ensure_ascii=False, indent=2),
+    response = render(request, "advisor/report.html", {"job": job, "draft": draft, "review_rows": rows,
                                                         "grounding_ready": bool(os.getenv("BING_CONNECTION_ID")),
                                                         "has_extraction": job.get("original") is not None,
                                                         "original_pretty": json.dumps(job.get("original"), ensure_ascii=False, indent=2),

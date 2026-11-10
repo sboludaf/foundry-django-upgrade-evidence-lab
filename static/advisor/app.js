@@ -3,7 +3,7 @@ const statusBox = document.querySelector("#status");
 const csrf = () => document.querySelector("[name=csrfmiddlewaretoken]").value;
 function status(message) { if (statusBox) statusBox.textContent = message; }
 async function post(url, data = {}) {
-  const response = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json","X-CSRFToken":csrf()},body:JSON.stringify(data)});
+  const response = await fetch(url, {method:"POST", mode:"same-origin", headers:{"Content-Type":"application/json","X-CSRFToken":csrf()},body:JSON.stringify(data)});
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || "No se confirmó la operación. Consulta el informe antes de repetir.");
   return value;
@@ -29,11 +29,45 @@ if(jobNode) {
     catch(error) { status(error.message); button.disabled = false; }
   }));
   const review = document.querySelector("#review-form");
+  const draft = structuredClone(job.review_proposal || {});
+  const confirmed = new Set();
+  function unconfirm(index) {
+    confirmed.delete(index);
+    const row = document.querySelector(`[data-issue-row="${index}"]`);
+    row.querySelector("[data-confirm-status]").textContent = "Pendiente de confirmar";
+    row.querySelector("[data-confirm]").textContent = "Confirmar aviso";
+  }
+  document.querySelectorAll("[data-edit]").forEach(button => button.addEventListener("click", () => {
+    const editor = document.getElementById("edit-" + button.dataset.edit);
+    editor.hidden = !editor.hidden;
+    button.setAttribute("aria-expanded", String(!editor.hidden));
+    if (!editor.hidden) unconfirm(Number(button.dataset.edit));
+  }));
+  document.querySelectorAll("[data-confirm]").forEach(button => button.addEventListener("click", () => {
+    const index = Number(button.dataset.confirm);
+    confirmed.add(index);
+    button.textContent = "Confirmado";
+    button.closest("tr").querySelector("[data-confirm-status]").textContent = "Confirmado para guardar";
+  }));
+  document.querySelectorAll("[data-issue-row] [data-field]").forEach(input => input.addEventListener("input", () => {
+    const index = Number(input.closest("[data-issue-row]").dataset.issueRow);
+    const group = input.closest("fieldset");
+    const branch = group.hasAttribute("data-branch");
+    const item = draft.issues[index][branch ? "branches" : "conditions"][Number(branch ? group.dataset.branch : group.dataset.condition)];
+    item[input.dataset.field] = input.value || (branch && ["affected_from", "affected_to", "fixed"].includes(input.dataset.field) ? null : "");
+    unconfirm(index);
+  }));
   if(review) review.addEventListener("submit", async event => {
     event.preventDefault();
     const button = review.querySelector("button"); button.disabled = true;
-    try { await post("/api/jobs/" + job.id + "/review/", {
-      evidence:JSON.parse(document.querySelector("#evidence").value),
+    try {
+      if (confirmed.size !== draft.issues.length) throw new Error("Confirma cada aviso de la tabla antes de guardar.");
+      draft.summary = document.querySelector("#review-summary").value;
+      const support = document.querySelector("#support-state").value;
+      draft.support = {supported:support === "unknown" ? null : support === "true", source_url:document.querySelector("#support-url").value || null, quote:document.querySelector("#support-quote").value};
+      draft.uncertainty = document.querySelector("#review-uncertainty").value.split("\n").map(s => s.trim()).filter(Boolean);
+      await post("/api/jobs/" + job.id + "/review/", {
+      evidence:draft,
       reason:document.querySelector("#reason").value,
       review_version:Number(document.querySelector("#review-version").value)
     }); location.reload(); } catch(error) { status(error.message); button.disabled = false; }

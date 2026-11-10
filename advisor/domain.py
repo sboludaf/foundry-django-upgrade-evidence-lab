@@ -22,6 +22,9 @@ def validate_evidence(evidence, docs):
     result = copy.deepcopy(evidence)
     if not isinstance(result.get("summary"), str) or len(result["summary"]) > 1500:
         raise AppError("invalid_evidence", "El resumen no es válido.", 422)
+    cves = [i.get("cve") for i in result["issues"] if isinstance(i, dict)]
+    if any(not isinstance(cve, str) for cve in cves) or len(cves) != len(set(cves)):
+        raise AppError("invalid_evidence", "Un aviso no puede repetirse.", 422)
     for issue in result["issues"]:
         if not isinstance(issue, dict):
             raise AppError("invalid_evidence", "Cada aviso debe ser un objeto.", 422)
@@ -29,6 +32,9 @@ def validate_evidence(evidence, docs):
             raise AppError("invalid_evidence", "Identificador CVE no válido.", 422)
         if not isinstance(issue.get("branches"), list) or len(issue["branches"]) > 5:
             raise AppError("invalid_evidence", "Faltan las ramas documentadas.", 422)
+        names = [str(b.get("branch")) for b in issue["branches"] if isinstance(b, dict)]
+        if len(names) != len(set(names)):
+            raise AppError("invalid_evidence", "Un aviso no puede repetir una rama.", 422)
         for branch in issue["branches"]:
             if not isinstance(branch, dict):
                 raise AppError("invalid_evidence", "Cada rama debe ser un objeto.", 422)
@@ -69,6 +75,8 @@ def validate_evidence(evidence, docs):
                 raise AppError("invalid_evidence", "Cada condición debe ser un objeto.", 422)
             if condition.get("state") not in ("unknown", "met", "not_met"):
                 raise AppError("invalid_evidence", "Una condición debe indicar unknown, met o not_met.", 422)
+            if condition["state"] != "unknown" and (not isinstance(condition.get("observation"), str) or not 8 <= len(condition["observation"].strip()) <= 500):
+                raise AppError("environment_evidence", "Describe cómo comprobaste la condición en tu entorno (8–500 caracteres).", 422)
             if not isinstance(condition.get("detail"), str) or len(condition["detail"]) > 500:
                 raise AppError("invalid_evidence", "Describe la condición pendiente.", 422)
             if not excerpt_is_verified(condition.get("quote"), condition.get("source_url"), docs):
@@ -97,6 +105,8 @@ def compare(installed, evidence):
                 state = "documented_fix"
             elif low and high and numbers(low) <= current <= numbers(high):
                 state = "documented_affected"
+        if state == "documented_affected" and any(c["state"] == "not_met" for c in issue.get("conditions", [])):
+            state = "documented_not_applicable"
         if state == "unresolved":
             unresolved.append(issue["cve"] + ": aplicabilidad no resuelta para la rama " + branch)
         for condition in issue.get("conditions", []):
@@ -106,12 +116,13 @@ def compare(installed, evidence):
                        "fixed": found.get("fixed") if found else None,
                        "source_url": found.get("source_url") if found else None,
                        "conditions": issue.get("conditions", [])})
-    if evidence.get("support", {}).get("supported") is not True:
+    if evidence.get("support", {}).get("supported") is None:
         unresolved.append("Soporte vigente no acreditado para la versión.")
     if not evidence["issues"]:
         unresolved.append("La ausencia de avisos no acredita una versión segura.")
     return {"issues": result, "unresolved": sorted(set(unresolved)),
-            "actionable": not unresolved, "version": installed}
+            "actionable": not unresolved, "version": installed,
+            "supported": evidence.get("support", {}).get("supported")}
 
 
 def decision_warnings(comparison, response):
@@ -121,4 +132,10 @@ def decision_warnings(comparison, response):
         warnings.append("La opción del modelo contradice una afectación documentada por el comparador.")
     if comparison["unresolved"] and reason != "insufficient-evidence":
         warnings.append("La opción del modelo no conserva todas las condiciones críticas sin resolver.")
+    if reason == "security-fix" and not any(i["state"] == "documented_affected" for i in comparison["issues"]):
+        warnings.append("El modelo propone una corrección de seguridad sin afectación documentada aplicable.")
+    if comparison.get("supported") is False and reason == "no-upgrade-needed":
+        warnings.append("El modelo omite el fin de soporte documentado.")
+    if comparison.get("supported") is True and reason == "unsupported":
+        warnings.append("El modelo contradice el soporte vigente documentado.")
     return warnings

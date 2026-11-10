@@ -11,6 +11,8 @@ from .integrations import (agents, read_grounding, call_decision, decision_body,
     prompt_project, prompt_grounding_tool, prompt_application_agent, response_client, read_response)
 from .repository import store
 from .sources import collect
+from .extraction import TARGETS
+from .extraction import release_sentence
 
 
 def grounding_context(job):
@@ -27,8 +29,15 @@ def grounding_context(job):
             selected = fragments[:1]
         else:
             selected = fragments[:1]
-        sources.append({"url": doc["url"], "excerpts": selected,
-                        "documented_cves": sorted(targets.intersection(doc.get("cves", [])))})
+        item = {"url": doc["url"], "excerpts": selected,
+                "documented_cves": sorted(targets.intersection(doc.get("cves", [])))}
+        if "/releases/" in doc["url"]:
+            fixed = doc["url"].rstrip("/").rsplit("/", 1)[-1]
+            found = next((f for text in fragments if (f := release_sentence(text, fixed))), None)
+            if found:
+                item["documented_exact_patch"] = {"affected_from": found[1], "affected_to": found[1],
+                    "fixed": fixed, "quote": found[0]}
+        sources.append(item)
     context = json.dumps({"as_of": time.strftime("%Y-%m-%d", time.gmtime()),
                           "version": job["version"], "batch": job["batch_hash"],
                           "sources": sources}, ensure_ascii=False)
@@ -185,6 +194,9 @@ def review(owner, job_id, evidence, reason, expected_review):
     if not isinstance(reason, str) or not 8 <= len(reason.strip()) <= 500:
         raise AppError("review_reason", "Describe el motivo de confirmación o corrección (8–500 caracteres).", 400)
     validated = validate_evidence(evidence, job["sources"])
+    expected = set(TARGETS).intersection(cve for doc in job["sources"] for cve in doc.get("cves", []))
+    if not expected.issubset({issue["cve"] for issue in validated["issues"]}):
+        raise AppError("invalid_evidence", "Conserva todos los avisos del lote; una rama ausente sigue sin resolver.", 422)
     job["review_version"] += 1
     job["reviewed"] = validated
     job["changes"].append({"review_version": job["review_version"], "reason": reason.strip(),
@@ -203,7 +215,10 @@ def decide(owner, job_id):
         raise AppError("review_required", "Confirma la revisión antes de pedir una decisión.")
     if not job.get("grounding", {}).get("searches"):
         raise AppError("grounding_required", "La decisión requiere grounding Bing real acreditado.", 503)
-    state = {"package": "Django", "version": job["version"], "review": job["reviewed"],
+    scoped_review = copy.deepcopy(job["reviewed"])
+    for issue in scoped_review["issues"]:
+        issue["branches"] = [b for b in issue["branches"] if b["branch"] == job["version"].rsplit(".", 1)[0]]
+    state = {"package": "Django", "version": job["version"], "review": scoped_review,
              "comparison": {"issues": [{"cve": i["cve"], "state": i["state"]} for i in job["comparison"]["issues"]],
                             "unresolved": job["comparison"]["unresolved"]},
              "batch_hash": job["batch_hash"]}

@@ -6,6 +6,13 @@
 <div id="status" class="status" role="status" aria-live="polite"></div>
 {% if not download %}{% csrf_token %}{% endif %}
 {% if job.error %}<section class="card"><h2>Etapa pendiente</h2><p>{{job.error.message}}</p></section>{% endif %}
+<section class="card conclusion" aria-labelledby="conclusion-title"><p class="eyebrow">CONCLUSIÓN DEL INFORME</p>
+<h2 id="conclusion-title">{{job.conclusion.label}}</h2>
+<p>Versión instalada: <strong>{{job.version}}</strong>. Versión propuesta: <strong>{{job.conclusion.proposed_version|default:"sin propuesta acreditada"}}</strong>.</p>
+{% if job.conclusion.proposed_version %}<p>{{job.conclusion.proposal_scope}}</p>{% endif %}
+<h3>Motivos</h3><ul>{% for reason in job.conclusion.reasons %}<li>{{reason}}</li>{% empty %}<li>La evidencia todavía no se ha confirmado.</li>{% endfor %}</ul>
+<h3>Condiciones pendientes</h3><ul>{% for pending in job.conclusion.pending %}<li>{{pending}}</li>{% empty %}<li>Ninguna condición crítica pendiente dentro de este lote.</li>{% endfor %}</ul>
+<p class="hint">{{job.conclusion.scope}}</p></section>
 <section class="card"><h2>Lote oficial</h2><p>Fecha de captura y SHA-256 pertenecen a cada documento. Lote: {{job.batch_hash|default:"todavía no recuperado"}}</p>
 {% for source in job.sources %}<details><summary><a href="{{source.url}}" rel="noopener">{{source.url}}</a></summary>
 <p>{{source.retrieved_at}} · SHA-256 {{source.sha256}}</p><blockquote>{{source.excerpt}}</blockquote></details>{% empty %}<p>Las fuentes aún no se han recuperado.</p>{% endfor %}
@@ -22,19 +29,44 @@
 {% for cite in job.grounding.citations %}<p><a href="{{cite.url}}" rel="noopener">{{cite.title}}</a></p>{% endfor %}
 {% for query in job.grounding.query_urls %}<p><a href="{{query}}" rel="noopener">Consulta Bing utilizada</a></p>{% endfor %}
 <p>Uso del agente: {{job.grounding.usage}}</p></section>{% endif %}
-{% if has_extraction %}<section class="card"><h2>Revisión humana</h2>
+{% if has_extraction %}<section class="card"><h2>Revisar los avisos</h2>
+<p>La propuesta de campos usa frases completas de las notas capturadas y su pertenencia por CVE. Se conserva por separado la salida original del agente. Las versiones afectadas son sólo las nombradas expresamente; no se deduce un rango anterior.</p>
 {% if job.reviewed %}<details><summary>Evidencia confirmada</summary><pre style="white-space:pre-wrap">{{reviewed_pretty}}</pre></details>{% endif %}
 {% for change in job.changes %}<p>Revisión {{change.review_version}}: {{change.reason}}</p>{% endfor %}
-{% if not download %}
-<p>Comprueba rangos, correcciones, fragmentos y condiciones. Usa null cuando un límite no esté documentado. La revisión original se conserva.</p>
-<form id="review-form"><label for="evidence">Campos de evidencia por CVE y rama (JSON)</label>
-<textarea id="evidence" rows="20" style="width:100%">{{draft}}</textarea>
+<div class="table-scroll"><table class="review-table"><caption>Avisos del lote oficial. Comprueba especialmente tu rama {{job.version}}.</caption>
+<thead><tr><th scope="col">Aviso</th><th scope="col">Versiones y evidencias</th><th scope="col">Revisión</th></tr></thead><tbody>
+{% for issue in review_rows %}<tr data-issue-row="{{forloop.counter0}}"><th scope="row">{{issue.cve}}<p>Django {{job.version}}: {{issue.comparison_label}}</p></th><td>
+{% for branch in issue.branches %}<div class="branch"><p><strong>Rama {{branch.branch}}</strong> · afectada {{branch.affected_from|default:"sin límite acreditado"}} — {{branch.affected_to|default:"sin límite acreditado"}} · corregida en <strong>{{branch.fixed|default:"no documentada"}}</strong></p>
+<blockquote>{{branch.quote}}</blockquote><a href="{{branch.source_url}}" rel="noopener">Notas oficiales de esta rama</a></div>
+{% empty %}<p>Sin rama documentada: su ausencia no acredita seguridad.</p>{% endfor %}
+{% for condition in issue.conditions %}<p><strong>Condición de uso:</strong> {{condition.detail}} · {% if condition.state == 'unknown' %}No comprobada{% elif condition.state == 'met' %}Se cumple{% else %}No se cumple{% endif %}</p><blockquote>{{condition.quote}}</blockquote><a href="{{condition.source_url}}" rel="noopener">Fuente de la condición</a>{% if condition.observation %}<p>Comprobación del revisor: {{condition.observation}}</p>{% endif %}{% endfor %}
+{% if not download %}<div id="edit-{{forloop.counter0}}" class="issue-editor" hidden>
+{% for branch in issue.branches %}<fieldset data-branch="{{forloop.counter0}}"><legend>Rama {{branch.branch}}</legend>
+<label>Afectada desde (vacío si no se conoce)<input data-field="affected_from" value="{{branch.affected_from|default_if_none:''}}"></label>
+<label>Afectada hasta (vacío si no se conoce)<input data-field="affected_to" value="{{branch.affected_to|default_if_none:''}}"></label>
+<label>Versión corregida<input data-field="fixed" value="{{branch.fixed|default_if_none:''}}"></label>
+<label>URL de las notas<input type="url" data-field="source_url" value="{{branch.source_url}}"></label>
+<label>Cita completa y exacta<textarea rows="4" data-field="quote">{{branch.quote}}</textarea></label></fieldset>{% endfor %}
+{% for condition in issue.conditions %}<fieldset data-condition="{{forloop.counter0}}"><legend>{{condition.detail}}</legend>
+<label>Estado en tu entorno<select data-field="state"><option value="unknown" {% if condition.state == 'unknown' %}selected{% endif %}>No comprobada</option><option value="met" {% if condition.state == 'met' %}selected{% endif %}>Se cumple</option><option value="not_met" {% if condition.state == 'not_met' %}selected{% endif %}>No se cumple</option></select></label>
+<label>Cómo lo comprobaste (obligatorio si se conoce)<textarea rows="2" maxlength="500" data-field="observation">{{condition.observation}}</textarea></label></fieldset>{% endfor %}
+</div>{% endif %}</td><td>{% if not download %}<button type="button" data-confirm="{{forloop.counter0}}">Confirmar aviso</button><button type="button" class="secondary" data-edit="{{forloop.counter0}}" aria-controls="edit-{{forloop.counter0}}" aria-expanded="false">Corregir</button><p data-confirm-status role="status">{% if job.reviewed %}Guardado en revisión {{job.review_version}}. Confirma de nuevo para cambiarla.{% else %}Pendiente de confirmar{% endif %}</p>{% else %}{% if job.reviewed %}Revisión {{job.review_version}} guardada{% else %}Propuesta sin confirmar{% endif %}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+<h3>Soporte de la rama</h3><p>{{draft.support.supported|yesno:"Vigente,Finalizado,No acreditado"}}</p><blockquote>{{draft.support.quote}}</blockquote>{% if draft.support.source_url %}<a href="{{draft.support.source_url}}" rel="noopener">Fuente del soporte</a>{% endif %}
+{% if not download %}<form id="review-form">
+<label>Resumen<input id="review-summary" maxlength="1500" value="{{draft.summary}}" required></label>
+<details><summary>Corregir soporte o incertidumbres</summary>
+<label>Soporte<select id="support-state"><option value="unknown" {% if draft.support.supported == None %}selected{% endif %}>No acreditado</option><option value="true" {% if draft.support.supported == True %}selected{% endif %}>Vigente</option><option value="false" {% if draft.support.supported == False %}selected{% endif %}>Finalizado</option></select></label>
+<label>URL oficial del soporte<input id="support-url" type="url" value="{{draft.support.source_url|default_if_none:''}}"></label>
+<label>Cita oficial del soporte<textarea id="support-quote" rows="3">{{draft.support.quote}}</textarea></label>
+<label>Incertidumbres críticas (una por línea)<textarea id="review-uncertainty" rows="3">{% for item in draft.uncertainty %}{{item}}{% if not forloop.last %}&#10;{% endif %}{% endfor %}</textarea></label></details>
 <label for="reason">Motivo de confirmación o corrección</label><input id="reason" minlength="8" maxlength="500" required>
-<input id="review-version" type="hidden" value="{{job.review_version}}"><button>Guardar revisión</button></form>{% endif %}</section>{% endif %}
+<input id="review-version" type="hidden" value="{{job.review_version}}"><button>Guardar avisos confirmados</button>
+<p>Guardar no llama a los modelos. Si cambias una decisión ya calculada, quedará obsoleta hasta pedir otra explícitamente.</p></form>{% endif %}</section>{% endif %}
 {% if job.comparison %}<section class="card"><h2>Comparación por rama</h2><ul>
-{% for issue in job.comparison.issues %}<li>{{issue.cve}} · rama {{issue.branch}} · {{issue.state}} · corrección {{issue.fixed|default:"no documentada"}}</li>{% endfor %}</ul>
+{% for issue in job.comparison.issues %}<li>{{issue.cve}} · rama {{issue.branch}} · {{issue.state_label}} · corrección {{issue.fixed|default:"no documentada"}}</li>{% endfor %}</ul>
 <h3>Condiciones pendientes</h3><ul>{% for item in job.comparison.unresolved %}<li>{{item}}</li>{% empty %}<li>Sin condiciones pendientes en este lote acotado; no es una garantía de seguridad.</li>{% endfor %}</ul>
-{% if job.stage == "reviewed" and not download %}<button data-action="decide">Solicitar decisión tipada</button><p>Esta acción reserva una llamada. Recargar o descargar no la repite.</p>{% endif %}</section>{% endif %}
+{% if job.stage == "reviewed" and not download %}<button data-action="decide">Calcular conclusión del informe</button><p>Esta acción reserva una llamada a Decision-1. Recargar o descargar no la repite.</p>{% endif %}</section>{% endif %}
 {% if job.decision %}<section class="card"><h2>Microsoft-Decision-1</h2>
 {% if job.decision_stale %}<p><strong>Decisión obsoleta:</strong> se revisaron datos después de obtenerla. No la utilices hasta recalcular explícitamente.</p>{% endif %}
 <p>Señal noul: {{job.decision.response.answers.upgrade_needed.noul}} · probabilidad de 0 a 1</p>
