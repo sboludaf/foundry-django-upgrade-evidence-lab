@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import hmac
 import json
 import os
 import time
@@ -14,6 +15,7 @@ from .repository import store
 from .sources import collect
 from .extraction import TARGETS
 from .extraction import release_sentence
+from .closure import CLOSABLE, CLOSED, state_token, provider_outcome
 
 
 def grounding_context(job):
@@ -283,6 +285,54 @@ def abandon(owner, job_id):
     if job["stage"] not in ("created", "source_failed", "sources_ready", "awaiting_review", "reviewed"):
         raise AppError("stage_locked", "No se puede cerrar una etapa activa o incierta sin conciliarla.")
     job["stage"] = "closed"
+    backend.save_job(job, etag)
+    backend.release(job_id)
+    return job
+
+
+def close_unverified(owner, job_id, reason, confirmed, expected_state, key):
+    """Close only this report/lock while retaining every effect and reservation.
+
+    Saving the job precedes releasing its lock. If release fails, the same
+    request ID may safely resume that last step; it never calls a provider.
+    """
+    backend = store()
+    job, etag = backend.job(job_id, owner)
+    if confirmed is not True:
+        raise AppError("closure_confirmation", "Confirma que el informe seguirá sin verificar y que puede haber consumo anterior o un segundo cargo.", 400)
+    if not isinstance(reason, str) or not 8 <= len(reason.strip()) <= 500:
+        raise AppError("closure_reason", "Explica por qué cierras sin verificar (8–500 caracteres).", 400)
+    try:
+        key = str(uuid.UUID(key))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise AppError("invalid_input", "El cierre necesita un ID UUID estable.", 400) from exc
+    previous = job.get("unverified_closure") or {}
+    if job["stage"] in CLOSED:
+        # Historical operator closures remain readable and closed. A new close
+        # is not represented as a second disposition or a successful analysis.
+        if previous and previous.get("id") != key:
+            raise AppError("already_closed", "El informe ya está cerrado sin verificar. Consulta su cierre; prepara otro análisis con un ID nuevo.", 409)
+        backend.release(job_id)
+        return job
+    if not isinstance(expected_state, str) or not hmac.compare_digest(expected_state, state_token(job)):
+        raise AppError("concurrent_change", "El informe cambió. Recárgalo y confirma el cierre sobre su estado actual.", 409)
+    if job["stage"] not in CLOSABLE:
+        raise AppError("stage_locked", "No se puede cerrar sin verificar una etapa que sigue activa o un informe ya completado. Consulta primero su estado.", 409)
+    ledger, _ = backend.ledger()
+    reservations = [r for r in ledger["reservations"] if r["id"].startswith(job_id + ":")]
+    outcome = provider_outcome(job)
+    job["unverified_closure"] = {
+        "id": key, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "owner": owner, "reason": reason.strip(), "previous_stage": job["stage"],
+        "provider_outcome": outcome, "verification": "not_verified",
+        "reservation_retained_in_full": True,
+        "retained_reservation_ids": [r["id"] for r in reservations],
+        "accepted_possible_additional_charge": True, "inference_replayed": False,
+        "new_analysis_requires_new_id": True}
+    job["stage"] = "closed_unverified"
+    if job.get("recovery"):
+        job["recovery"] = dict(job["recovery"], blocked=False, administratively_closed=True,
+                               provider_outcome=outcome)
     backend.save_job(job, etag)
     backend.release(job_id)
     return job

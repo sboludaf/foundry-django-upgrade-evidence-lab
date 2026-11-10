@@ -108,6 +108,10 @@ def action(request, report_id, operation):
         job = pipeline.decide(request.owner, job_id)
     elif operation == "close":
         job = pipeline.abandon(request.owner, job_id)
+    elif operation == "close-unverified":
+        data = body(request)
+        job = pipeline.close_unverified(request.owner, job_id, data.get("reason"), data.get("confirmed"),
+                                        data.get("state_token"), data.get("idempotency_key"))
     else:
         raise AppError("not_found", "Operación desconocida.", 404)
     return JsonResponse(report_payload(job))
@@ -137,6 +141,7 @@ def report_html(request, report_id):
     response = render(request, "advisor/report.html", {"job": job, "draft": draft, "review_rows": rows,
                                                         "grounding_ready": bool(os.getenv("BING_CONNECTION_ID")),
                                                         "has_extraction": job.get("original") is not None,
+                                                        "editable_review": job.get("original") is not None and not job["verification"]["closed"],
                                                         "original_pretty": json.dumps(job.get("original"), ensure_ascii=False, indent=2),
                                                         "reviewed_pretty": json.dumps(job.get("reviewed"), ensure_ascii=False, indent=2),
                                                         "download": download,

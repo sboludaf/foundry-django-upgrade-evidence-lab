@@ -5,7 +5,12 @@
 <h1>Django {{job.version}}</h1><p>Estado: {{job.stage}} · {{job.updated_at}}</p><a href="/">Volver a mis informes</a></header>
 <div id="status" class="status" role="status" aria-live="polite"></div>
 {% if not download %}{% csrf_token %}{% endif %}
-{% if job.error %}<section class="card"><h2>Etapa pendiente</h2><p>{{job.error.message}}</p></section>{% endif %}
+{% if job.verification.closed %}<section class="card" aria-labelledby="closure-title"><h2 id="closure-title">Cerrado sin verificar</h2>
+<p>Este cierre permite empezar otro análisis, pero no confirma la evidencia ni que debas actualizar. El informe anterior conserva sus datos y su consumo.</p>
+<p>Respuesta de IA: <strong>{{job.verification.provider_label}}</strong>. El cierre no cancela una operación que pueda seguir ejecutándose ni devuelve su coste.</p>
+<p>Motivo: {{job.verification.reason}}</p>
+{% if not download %}<p><a class="button-link" href="/">Preparar otro análisis</a></p><p>Será una solicitud distinta y puede generar un cargo adicional.</p>{% endif %}</section>{% endif %}
+{% if job.error %}<section class="card"><h2>{% if job.verification.closed %}Diagnóstico anterior conservado{% else %}Etapa pendiente{% endif %}</h2><p>{{job.error.message}}</p></section>{% endif %}
 {% if job.recovery.blocked %}<section class="card"><h2>Respuesta pendiente de conciliación</h2>
 <p>La operación original no se vuelve a enviar. Se mantiene su reserva hasta comprobar el resultado.</p>
 <details><summary>Identificadores para el operador</summary><p>Respuesta: {{job.response_id}}</p><p>Conversación: {{job.conversation_id}}</p><p>Estado del proveedor: {{job.recovery.provider_status|default:"sin confirmación"}}</p></details></section>{% endif %}
@@ -43,7 +48,7 @@
 <blockquote>{{branch.quote}}</blockquote><a href="{{branch.source_url}}" rel="noopener">Notas oficiales de esta rama</a></div>
 {% empty %}<p>Sin rama documentada: su ausencia no acredita seguridad.</p>{% endfor %}
 {% for condition in issue.conditions %}<p><strong>Condición de uso:</strong> {{condition.detail}} · {% if condition.state == 'unknown' %}No comprobada{% elif condition.state == 'met' %}Se cumple{% else %}No se cumple{% endif %}</p><blockquote>{{condition.quote}}</blockquote><a href="{{condition.source_url}}" rel="noopener">Fuente de la condición</a>{% if condition.observation %}<p>Comprobación del revisor: {{condition.observation}}</p>{% endif %}{% endfor %}
-{% if not download %}<div id="edit-{{forloop.counter0}}" class="issue-editor" hidden>
+{% if not download and editable_review %}<div id="edit-{{forloop.counter0}}" class="issue-editor" hidden>
 {% for branch in issue.branches %}<fieldset data-branch="{{forloop.counter0}}"><legend>Rama {{branch.branch}}</legend>
 <label>Afectada desde (vacío si no se conoce)<input data-field="affected_from" value="{{branch.affected_from|default_if_none:''}}"></label>
 <label>Afectada hasta (vacío si no se conoce)<input data-field="affected_to" value="{{branch.affected_to|default_if_none:''}}"></label>
@@ -53,10 +58,10 @@
 {% for condition in issue.conditions %}<fieldset data-condition="{{forloop.counter0}}"><legend>{{condition.detail}}</legend>
 <label>Estado en tu entorno<select data-field="state"><option value="unknown" {% if condition.state == 'unknown' %}selected{% endif %}>No comprobada</option><option value="met" {% if condition.state == 'met' %}selected{% endif %}>Se cumple</option><option value="not_met" {% if condition.state == 'not_met' %}selected{% endif %}>No se cumple</option></select></label>
 <label>Cómo lo comprobaste (obligatorio si se conoce)<textarea rows="2" maxlength="500" data-field="observation">{{condition.observation}}</textarea></label></fieldset>{% endfor %}
-</div>{% endif %}</td><td>{% if not download %}<button type="button" data-confirm="{{forloop.counter0}}">Confirmar aviso</button><button type="button" class="secondary" data-edit="{{forloop.counter0}}" aria-controls="edit-{{forloop.counter0}}" aria-expanded="false">Corregir</button><p data-confirm-status role="status">{% if job.reviewed %}Guardado en revisión {{job.review_version}}. Confirma de nuevo para cambiarla.{% else %}Pendiente de confirmar{% endif %}</p>{% else %}{% if job.reviewed %}Revisión {{job.review_version}} guardada{% else %}Propuesta sin confirmar{% endif %}{% endif %}</td></tr>{% endfor %}
+</div>{% endif %}</td><td>{% if not download and editable_review %}<button type="button" data-confirm="{{forloop.counter0}}">Confirmar aviso</button><button type="button" class="secondary" data-edit="{{forloop.counter0}}" aria-controls="edit-{{forloop.counter0}}" aria-expanded="false">Corregir</button><p data-confirm-status role="status">{% if job.reviewed %}Guardado en revisión {{job.review_version}}. Confirma de nuevo para cambiarla.{% else %}Pendiente de confirmar{% endif %}</p>{% else %}{% if job.reviewed %}Revisión {{job.review_version}} guardada{% else %}Propuesta sin confirmar{% endif %}{% endif %}</td></tr>{% endfor %}
 </tbody></table></div>
 <h3>Soporte de la rama</h3><p>{{draft.support.supported|yesno:"Vigente,Finalizado,No acreditado"}}</p><blockquote>{{draft.support.quote}}</blockquote>{% if draft.support.source_url %}<a href="{{draft.support.source_url}}" rel="noopener">Fuente del soporte</a>{% endif %}
-{% if not download %}<form id="review-form">
+{% if not download and editable_review %}<form id="review-form">
 <label>Resumen<input id="review-summary" maxlength="1500" value="{{draft.summary}}" required></label>
 <details><summary>Corregir soporte o incertidumbres</summary>
 <label>Soporte<select id="support-state"><option value="unknown" {% if draft.support.supported == None %}selected{% endif %}>No acreditado</option><option value="true" {% if draft.support.supported == True %}selected{% endif %}>Vigente</option><option value="false" {% if draft.support.supported == False %}selected{% endif %}>Finalizado</option></select></label>
@@ -81,7 +86,12 @@
 <section class="card"><h2>Conservar informe</h2>
 <p><a href="/api/reports/{{job.id}}/">Descargar JSON</a> · <a href="?download=1">Descargar HTML</a></p>
 <p>Las descargas reflejan el estado de este informe, incluidas sus etapas incompletas y decisiones obsoletas.</p>
-{% if not download %}{% if job.stage == "sources_ready" or job.stage == "reviewed" or job.stage == "created" or job.stage == "source_failed" or job.stage == "awaiting_review" %}<button data-action="close">Cerrar este análisis sin nuevas llamadas</button>{% endif %}{% endif %}</section>
+</section>
+{% if not download and job.verification.can_close %}<section class="card"><h2>Continuar sin verificar este informe</h2>
+<p>Si no puedes completar la verificación, puedes cerrar este informe y preparar otro. El cierre no convierte los datos pendientes en evidencia confirmada ni repite la operación original.</p>
+<form id="close-unverified-form"><label for="closure-reason">Por qué no puedes verificarlo</label><textarea id="closure-reason" minlength="8" maxlength="500" required rows="3"></textarea>
+<label class="checkbox-label"><input id="closure-confirmed" type="checkbox" required> Entiendo que este informe queda sin verificar, que la operación anterior podría seguir ejecutándose y que otro análisis puede generar un segundo cargo. Se conserva el consumo anterior.</label>
+<button type="submit">Cerrar sin verificar y continuar</button></form></section>{% endif %}
 {{job|json_script:"job-data"}}
 <footer><a href="https://privacy.microsoft.com/en-us/privacystatement" rel="noopener">Microsoft Privacy Statement</a></footer>
 </main>{% if not download %}<script src="{% static 'advisor/app.js' %}" defer></script>{% endif %}</body></html>

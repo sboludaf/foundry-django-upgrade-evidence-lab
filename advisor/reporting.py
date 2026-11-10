@@ -2,6 +2,7 @@
 import copy
 from .domain import compare, numbers
 from .extraction import review_draft
+from .closure import CLOSED, closure_view
 
 STATES = {"documented_affected": "Afectación documentada", "documented_fix": "Corrección documentada",
           "documented_not_applicable": "Condición de uso descartada por el revisor", "unresolved": "Aplicabilidad sin resolver"}
@@ -16,6 +17,8 @@ def conclusion(job):
         if issue["state"] == "documented_affected" and issue.get("fixed") and numbers(issue["fixed"]) > numbers(job["version"]):
             candidates.append(issue["fixed"])
     decision = job.get("decision")
+    if job.get("stage") in CLOSED:
+        pending.append("Informe cerrado sin verificar. Este cierre no confirma la evidencia ni el resultado del proveedor; prepara otro análisis con un ID nuevo.")
     if not job.get("reviewed"):
         pending.append("Confirma o corrige todos los avisos antes de obtener una conclusión.")
     elif not decision:
@@ -46,6 +49,7 @@ def conclusion(job):
 
 def report_payload(job):
     value = copy.deepcopy(job)
+    value["verification"] = closure_view(job)
     value["conclusion"] = conclusion(job)
     if value.get("comparison"):
         for issue in value["comparison"]["issues"]:

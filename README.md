@@ -75,7 +75,7 @@ Cliente alternativo por API, sin cookies ni contraseñas en disco:
 uv run python scripts/client.py --url <SERVICE_WEB_ENDPOINT_URL>
 ```
 
-La contraseña entra por getpass. El cliente mantiene una sesión en memoria y ofrece prepare/show/ground/reconcile/review/decide/close. No sigue redirecciones fuera del origen. No uses curl con tokens en argumentos o cookies persistidas.
+La contraseña entra por getpass. El cliente mantiene una sesión en memoria y ofrece prepare/show/ground/reconcile/review/decide/close-unverified/close. No sigue redirecciones fuera del origen. No uses curl con tokens en argumentos o cookies persistidas.
 
 La acción `review` solicita la ruta de un archivo JSON UTF-8 de hasta64KiB. Puede tener múltiples líneas y superar el límite canónico del terminal: sólo se introduce la ruta corta, nunca se pega el objeto en una línea. Guarda exclusivamente el objeto de evidencia (`summary`, `issues`, `support`, `uncertainty`), que puedes obtener del campo `review_proposal` de `show`; no guardes contraseñas, cookies o cabeceras. Después solicita el motivo y envía la revisión contra el número actual. Los errores muestran el código/mensaje conocido del servidor y una recuperación específica; una versión inválida se corrige antes de preparar un informe.
 
@@ -119,7 +119,21 @@ uv run python scripts/recover.py --account <Storage-propio> --job <UUID-original
   --reason 'Cambio comprobado del proveedor o contexto; leer una vez el ID original'
 ```
 
-No usar ese comando como bucle frente a errores idénticos. Si falla, vuelve a conservar la incertidumbre. Un resultado completo y acreditado permite continuar el mismo informe; un resultado terminal fallido puede cerrar su bloqueo, manteniendo la reserva de consumo. Si el ID sigue sin resultado, mantén la operación y solicita conciliación al proveedor con sus identificadores. No poner el bloqueo a null, resetear contadores, iniciar otro análisis para saltarlo ni dar PASS a partir de ese estado.
+No usar ese comando como bucle frente a errores idénticos. Si falla, vuelve a conservar la incertidumbre. Un resultado completo y acreditado permite continuar el mismo informe; un resultado terminal fallido puede cerrar su bloqueo, manteniendo la reserva de consumo. Si el ID sigue sin resultado, puedes mantener la operación bloqueada y solicitar conciliación al proveedor con sus identificadores, o elegir el cierre explícito sin verificar descrito a continuación. No pongas el bloqueo a null ni reinicies contadores manualmente. Un cierre sin verificar no es una recuperación acreditada ni un resultado aceptado.
+
+### Cerrar sin verificar y continuar
+
+Cuando no puedes verificar un informe, puedes conservarlo como **Cerrado sin verificar** y preparar otro análisis. Es una decisión explícita del propietario, no una recuperación automática ni una confirmación de la evidencia. La operación anterior podría seguir ejecutándose: el cierre no la cancela, no devuelve su coste y otro análisis puede producir un segundo cargo. Las cuotas y la ventana de consumo siguen vigentes.
+
+En la web, abre el informe, explica el motivo en **Continuar sin verificar este informe**, marca que entiendes esas consecuencias y pulsa **Cerrar sin verificar y continuar**. El informe conserva fuentes, original, revisión, Decision anterior, IDs, diagnóstico y reservas. El enlace **Preparar otro análisis** vuelve a la entrada; sólo prepararás una solicitud nueva cuando introduzcas su versión. No se vuelve a enviar la operación anterior.
+
+En el cliente documentado, selecciona el informe mediante `show` y su UUID. Ejecuta `close-unverified`, introduce un motivo de8–500caracteres y escribe literalmente `CERRAR SIN VERIFICAR`. Después, `show` permite releer el cierre y `prepare` crea un UUID nuevo. Una entrada equivocada o un estado cambiado se rechazan antes de guardar. Si una respuesta de cierre se pierde, repetir `close-unverified` en la misma sesión conserva su ID; no crea otro cierre ni inferencia. Tras reiniciar el cliente, consulta primero `show`: el cierre y su ID permanecen en el informe.
+
+El API autenticado expone `POST /api/jobs/<UUID>/close-unverified/` con `reason`, `confirmed:true`, `state_token` obtenido de `verification.state_token` del informe actual e `idempotency_key` UUID estable para ese cierre. Reenviar el mismo ID termina un cierre parcialmente confirmado sin reescribir su historial. Un ID distinto para un informe ya cerrado se rechaza; un informe cambiado requiere recargar y confirmar su nuevo estado. CSRF y propiedad del informe se comprueban como en las otras acciones.
+
+Se permite en etapas sin trabajo activo conocido: antes de iniciar IA, revisión pendiente, fallo terminal, `uncertain` o `recovery_required`. No cierra `fetching_sources`, `grounding_running`, envíos activos ni un informe completado. Si queda incertidumbre del proveedor, `provider_outcome` continúa en `unknown`; si no se había enviado IA, es `not_started`. La única liberación es el bloqueo de ese informe: se conservan íntegros contadores y reservas y nunca se libera el bloqueo de otro análisis.
+
+HTML y JSON muestran el cierre como **sin verificar**, con motivo, incertidumbre y conclusión insuficiente; no permiten revisar/decidir sobre el informe cerrado. Un cierre administrativo histórico `closed_unrecoverable` también se muestra como no verificado, sin reescribirlo. La nueva solicitud no hereda una revisión, Decision ni aceptación anteriores. Para obtener una conclusión útil, el nuevo análisis debe completar sus propias fuentes, grounding, revisión explícita y Decision-1.
 
 Un error de fuente deja un fallo recuperable sin llamadas a modelos. Puedes cerrar un análisis que no esté activo/incierto para liberar su bloqueo. Una operación incierta requiere conciliación del operador antes de otra ejecución. La ausencia de almacenamiento o Bing devuelve un mensaje específico, sin resultado inventado.
 

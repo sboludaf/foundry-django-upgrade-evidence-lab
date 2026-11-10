@@ -27,6 +27,20 @@ if(form) form.addEventListener("submit", async event => {
 const jobNode = document.querySelector("#job-data");
 if(jobNode) {
   const job = JSON.parse(jobNode.textContent);
+  const closure = document.querySelector("#close-unverified-form");
+  if(closure) closure.addEventListener("submit", async event => {
+    event.preventDefault();
+    const button = closure.querySelector("button"); button.disabled = true;
+    closure.dataset.requestId ||= crypto.randomUUID();
+    try {
+      status("Cerrando el informe sin verificar…");
+      await post("/api/jobs/" + job.id + "/close-unverified/", {
+        reason:document.querySelector("#closure-reason").value,
+        confirmed:document.querySelector("#closure-confirmed").checked,
+        state_token:job.verification.state_token, idempotency_key:closure.dataset.requestId});
+      location.reload();
+    } catch(error) { status(error.message); button.disabled = false; }
+  });
   document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", async () => {
     button.disabled = true;
     try { status("Procesando la etapa solicitada…"); await post("/api/jobs/" + job.id + "/" + button.dataset.action + "/"); location.reload(); }

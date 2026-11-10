@@ -81,7 +81,7 @@ class Client:
             codes = {"invalid_input", "invalid_evidence", "unverified_claim", "unverified_branch", "unverified_fix",
                      "unverified_range", "wrong_branch", "unverified_condition", "unverified_support", "review_reason",
                      "review_required", "concurrent_change", "stage_locked", "environment_evidence", "decision_input_limit",
-                     "grounding_response_unavailable", "grounding_recovery_required"}
+                     "grounding_response_unavailable", "grounding_recovery_required", "closure_confirmation", "closure_reason", "already_closed"}
             detail = ""
             try:
                 error = json.loads(exc.read(8192))
@@ -105,8 +105,9 @@ def main():
     client.login(input("Usuario propietario: "), getpass.getpass("Contraseña (entrada oculta): "))
     print("Sesión establecida. Nunca se escriben cookies o credenciales en disco.")
     job_id = None
+    pending_closures = {}
     while True:
-        command = input("Acción [prepare, show, ground, reconcile, review, decide, close, quit]: ").strip()
+        command = input("Acción [prepare, show, ground, reconcile, review, decide, close-unverified, close, quit]: ").strip()
         if command == "quit":
             return
         try:
@@ -128,11 +129,33 @@ def main():
                     print(client.request("/api/jobs/" + job_id + "/review/", {
                         "evidence": evidence, "reason": input("Motivo de revisión: "),
                         "review_version": current["review_version"]})["stage"])
+                elif command == "close-unverified":
+                    current = client.request("/api/reports/" + job_id + "/")
+                    pending = pending_closures.get(job_id)
+                    if current["verification"]["closed"] and not pending:
+                        print("El informe ya está cerrado sin verificar. Usa prepare para otro análisis con un ID nuevo.")
+                        continue
+                    if not pending:
+                        print("El informe quedará sin verificar. La operación anterior podría seguir ejecutándose; su consumo se conserva y otro análisis puede generar un segundo cargo.")
+                        reason = input("Por qué no puedes verificarlo (8–500 caracteres): ")
+                        confirmed = input("Escribe CERRAR SIN VERIFICAR para confirmar: ") == "CERRAR SIN VERIFICAR"
+                        if not confirmed:
+                            print("Cierre cancelado: el informe y su bloqueo se conservan.")
+                            continue
+                        pending = {"reason": reason, "confirmed": confirmed,
+                            "state_token": current["verification"]["state_token"], "idempotency_key": str(uuid.uuid4())}
+                    print("ID estable de cierre:", pending["idempotency_key"])
+                    pending_closures[job_id] = pending
+                    value = client.request("/api/jobs/" + job_id + "/close-unverified/", pending)
+                    pending_closures.pop(job_id, None)
+                    print(value["stage"] + ": sin verificar. Usa prepare para un análisis distinto; no se ha enviado inferencia.")
                 elif command in ("ground", "reconcile", "decide", "close"):
                     print(client.request("/api/jobs/" + job_id + "/" + command + "/", {})["stage"])
                 else:
                     print("Acción no reconocida.")
         except (OSError, ValueError, RuntimeError) as error:
+            if command == "close-unverified" and any("[" + code + "]" in str(error) for code in ("closure_reason", "concurrent_change", "stage_locked", "already_closed", "invalid_input")):
+                pending_closures.pop(job_id, None)
             print(str(error))
 
 
