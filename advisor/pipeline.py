@@ -314,7 +314,9 @@ def close_unverified(owner, job_id, reason, confirmed, expected_state, key):
             raise AppError("already_closed", "El informe ya está cerrado sin verificar. Consulta su cierre; prepara otro análisis con un ID nuevo.", 409)
         backend.release(job_id)
         return job
-    if not isinstance(expected_state, str) or not hmac.compare_digest(expected_state, state_token(job)):
+    if (not isinstance(expected_state, str) or len(expected_state) != 64
+            or any(c not in "0123456789abcdef" for c in expected_state)
+            or not hmac.compare_digest(expected_state, state_token(job))):
         raise AppError("concurrent_change", "El informe cambió. Recárgalo y confirma el cierre sobre su estado actual.", 409)
     if job["stage"] not in CLOSABLE:
         raise AppError("stage_locked", "No se puede cerrar sin verificar una etapa que sigue activa o un informe ya completado. Consulta primero su estado.", 409)

@@ -27,6 +27,17 @@ if(form) form.addEventListener("submit", async event => {
 const jobNode = document.querySelector("#job-data");
 if(jobNode) {
   const job = JSON.parse(jobNode.textContent);
+  const resumeClose = document.querySelector("#resume-close");
+  if(resumeClose) resumeClose.addEventListener("click", async () => {
+    resumeClose.disabled = true;
+    try {
+      status("Comprobando el cierre guardado…");
+      await post("/api/jobs/" + job.id + "/close-unverified/", {
+        reason:job.unverified_closure.reason, confirmed:true,
+        state_token:job.verification.state_token, idempotency_key:job.unverified_closure.id});
+      location.assign("/");
+    } catch(error) { status(error.message); resumeClose.disabled = false; }
+  });
   const closure = document.querySelector("#close-unverified-form");
   if(closure) closure.addEventListener("submit", async event => {
     event.preventDefault();

@@ -133,8 +133,13 @@ def main():
                     current = client.request("/api/reports/" + job_id + "/")
                     pending = pending_closures.get(job_id)
                     if current["verification"]["closed"] and not pending:
-                        print("El informe ya está cerrado sin verificar. Usa prepare para otro análisis con un ID nuevo.")
-                        continue
+                        recorded = current.get("unverified_closure")
+                        if not recorded:
+                            print("El informe ya está cerrado sin verificar. Usa prepare para otro análisis con un ID nuevo.")
+                            continue
+                        pending = {"reason": recorded["reason"], "confirmed": True,
+                            "state_token": current["verification"]["state_token"], "idempotency_key": recorded["id"]}
+                        print("Comprobando el cierre ya confirmado con su mismo ID; no se envía inferencia.")
                     if not pending:
                         print("El informe quedará sin verificar. La operación anterior podría seguir ejecutándose; su consumo se conserva y otro análisis puede generar un segundo cargo.")
                         reason = input("Por qué no puedes verificarlo (8–500 caracteres): ")

@@ -31,7 +31,7 @@ def closure_view(job):
     labels = {"unknown": "Sin confirmar", "not_started": "No iniciada",
               "completed": "Respuesta recibida; evidencia sin verificar",
               "failed": "Fallo informado por el proveedor", "incomplete": "Respuesta incompleta"}
-    return {"closed": closed, "verified": False if closed else None,
+    return {"closed": closed, "verified": False if closed else None, "actionable": False if closed else None,
             "can_close": job.get("stage") in CLOSABLE,
             "state_token": state_token(job),
             "provider_outcome": outcome, "provider_label": labels.get(outcome, "Sin confirmar"),

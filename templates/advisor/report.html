@@ -9,7 +9,7 @@
 <p>Este cierre permite empezar otro análisis, pero no confirma la evidencia ni que debas actualizar. El informe anterior conserva sus datos y su consumo.</p>
 <p>Respuesta de IA: <strong>{{job.verification.provider_label}}</strong>. El cierre no cancela una operación que pueda seguir ejecutándose ni devuelve su coste.</p>
 <p>Motivo: {{job.verification.reason}}</p>
-{% if not download %}<p><a class="button-link" href="/">Preparar otro análisis</a></p><p>Será una solicitud distinta y puede generar un cargo adicional.</p>{% endif %}</section>{% endif %}
+{% if not download %}<p>{% if job.unverified_closure %}<button type="button" id="resume-close">Preparar otro análisis</button>{% else %}<a class="button-link" href="/">Preparar otro análisis</a>{% endif %}</p><p>Será una solicitud distinta y puede generar un cargo adicional.</p>{% endif %}</section>{% endif %}
 {% if job.error %}<section class="card"><h2>{% if job.verification.closed %}Diagnóstico anterior conservado{% else %}Etapa pendiente{% endif %}</h2><p>{{job.error.message}}</p></section>{% endif %}
 {% if job.recovery.blocked %}<section class="card"><h2>Respuesta pendiente de conciliación</h2>
 <p>La operación original no se vuelve a enviar. Se mantiene su reserva hasta comprobar el resultado.</p>
@@ -76,12 +76,13 @@
 <h3>Condiciones pendientes</h3><ul>{% for item in job.comparison.unresolved %}<li>{{item}}</li>{% empty %}<li>Sin condiciones pendientes en este lote acotado; no es una garantía de seguridad.</li>{% endfor %}</ul>
 {% if job.stage == "reviewed" and not download %}<button data-action="decide">Calcular conclusión del informe</button><p>Esta acción reserva una llamada a Decision-1. Recargar o descargar no la repite.</p>{% endif %}</section>{% endif %}
 {% if job.decision %}<section class="card"><h2>Microsoft-Decision-1</h2>
+{% if job.verification.closed %}<p><strong>Decisión histórica conservada:</strong> el cierre sin verificar no valida este resultado ni permite actuar sobre él.</p>{% endif %}
 {% if job.decision_stale %}<p><strong>Decisión obsoleta:</strong> se revisaron datos después de obtenerla. No la utilices hasta recalcular explícitamente.</p>{% endif %}
 <p>Señal noul: {{job.decision.response.answers.upgrade_needed.noul}} · probabilidad de 0 a 1</p>
 <p>Motivo choice: {{job.decision.response.answers.reason.choice}}</p>
 {% for warning in job.decision.warnings %}<p><strong>Requiere revisión:</strong> {{warning}}</p>{% endfor %}
 <p>Urgencia score: {{job.decision.response.answers.urgency.score}} de 3 · escala 0 Informativa, 1 Revisión, 2 Priorizar, 3 Revisión urgente.</p>
-{% if not job.decision.actionable %}<p>Urgencia no accionable: faltan evidencias o condiciones críticas.</p>{% endif %}
+{% if not job.decision.actionable or job.verification.closed %}<p>Urgencia no accionable: faltan evidencias o condiciones críticas.</p>{% endif %}
 <p>Los valores son orientativos, sin calibración acreditada. Decision-1 no genera una explicación ni instala actualizaciones.</p></section>{% endif %}
 <section class="card"><h2>Conservar informe</h2>
 <p><a href="/api/reports/{{job.id}}/">Descargar JSON</a> · <a href="?download=1">Descargar HTML</a></p>

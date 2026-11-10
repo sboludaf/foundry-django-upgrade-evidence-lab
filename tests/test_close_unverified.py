@@ -13,6 +13,7 @@ from advisor.reporting import report_payload
 from advisor.repository import AzureStore
 from tests.test_advisor import fixture
 from tests.test_response_recovery import pending_job
+from tests.test_readable_report import ReadableConclusion
 from scripts.client import main
 
 
@@ -72,7 +73,8 @@ class CloseWithoutVerification(SimpleTestCase):
         for override, code in (({"confirmed": False}, "closure_confirmation"),
                                ({"confirmed": "true"}, "closure_confirmation"),
                                ({"reason": ""}, "closure_reason"),
-                               ({"expected_state": "stale"}, "concurrent_change")):
+                               ({"expected_state": "stale"}, "concurrent_change"),
+                               ({"expected_state": "á" * 64}, "concurrent_change")):
             with self.subTest(code=code, override=override):
                 job, backend, state = setup()
                 before = copy.deepcopy(state)
@@ -158,6 +160,32 @@ class CloseWithoutVerification(SimpleTestCase):
         self.assertFalse(report_payload(result)["verification"]["verified"])
         backend.save_job.assert_not_called()
 
+    def test_closure_keeps_prior_evidence_and_decision_but_never_their_actionability(self):
+        job, backend, state = setup("reviewed")
+        prior = ReadableConclusion().job()
+        for field in ("sources", "original", "reviewed", "decision", "comparison", "decision_stale", "changes"):
+            job[field] = copy.deepcopy(prior[field])
+        state["job"] = copy.deepcopy(job)
+        self.assertEqual(report_payload(job)["conclusion"]["code"], "indicated")
+        result = self.close(job, backend)
+        for field in ("sources", "original", "reviewed", "decision", "comparison", "decision_stale", "changes"):
+            self.assertEqual(result[field], prior[field])
+        payload = report_payload(result)
+        self.assertEqual(payload["conclusion"]["code"], "insufficient")
+        self.assertIs(payload["verification"]["actionable"], False)
+        with patch("advisor.auth.owner_for", return_value="owner"), patch("advisor.views.store", return_value=backend):
+            response = self.client.get("/reports/" + job["id"] + "/")
+            self.assertContains(response, "Decisión histórica conservada")
+            self.assertContains(response, "Urgencia no accionable")
+            self.assertNotContains(response, 'id="review-form"')
+            self.assertNotContains(response, "data-confirm=")
+            self.assertNotContains(response, 'data-action="decide"')
+        with patch("advisor.pipeline.store", return_value=backend):
+            with self.assertRaises(AppError):
+                pipeline.review("owner", job["id"], prior["reviewed"], REASON, job["review_version"])
+            with self.assertRaises(AppError):
+                pipeline.decide("owner", job["id"])
+
     def test_http_action_requires_owner_confirmation_and_returns_safe_errors(self):
         job, backend, state = setup()
         data = {"reason": REASON, "confirmed": False, "state_token": state_token(job), "idempotency_key": KEY}
@@ -181,6 +209,20 @@ class CloseWithoutVerification(SimpleTestCase):
 
 
 class ClosureClient(SimpleTestCase):
+    def test_new_cli_session_resumes_a_persisted_close_before_continuation(self):
+        client = MagicMock()
+        client.request.side_effect = [
+            {"verification": {"closed": True, "state_token": "development-state"},
+             "unverified_closure": {"id": KEY, "reason": REASON}}, {"stage": "closed_unverified"}]
+        inputs = iter(["owner", "close-unverified", "e48c8f34-7aa2-48ce-a42d-98a1894fa5a7", "quit"])
+        with patch("scripts.client.Client", return_value=client), patch("sys.argv", ["client.py", "--url", "https://example.invalid"]), patch(
+                "builtins.input", side_effect=lambda _: next(inputs)), patch("getpass.getpass", return_value="development-only"), patch("builtins.print"):
+            main()
+        posted = client.request.call_args_list[1]
+        self.assertEqual(posted.args[1]["idempotency_key"], KEY)
+        self.assertEqual(posted.args[1]["reason"], REASON)
+        self.assertIs(posted.args[1]["confirmed"], True)
+
     def test_unconfirmed_cli_close_does_not_send_a_mutation(self):
         client = MagicMock()
         client.request.return_value = {"verification": {"closed": False, "state_token": "development-state"}}
