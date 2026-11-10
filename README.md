@@ -98,6 +98,29 @@ Cada solicitud usa un UUID idempotente. “Consultar la etapa existente” sólo
 
 Una instalación nueva crea un único agente prompt y lo reutiliza, fijando su versión en cada respuesta. Si existe un agente clásico, se bloquea la migración automática: el operador debe comprobar sus runs terminales, conservar definición/evidencia y retirar sólo ese agente propio antes de activar el nuevo. Nunca se adoptan agentes ajenos ni se mantienen dos agentes para el mismo entorno.
 
+La etapa de grounding conserva el ID desde `response.created` y consume el stream hasta su evento terminal. Guarda un snapshot saneado de esa respuesta final: misma identidad, salida/citas, pasos Bing y uso de tokens. La recuperación de ese snapshot no consulta al proveedor. Si la conexión termina antes del evento final, conserva el ID y permite leer la misma respuesta; nunca reenvía la inferencia.
+
+Un404, fallo de red, autorización o error del servicio al leer Responses devuelve un errorJSON conocido en lugar de500. El informe pasa a `recovery_required`, conserva respuesta/conversación/efecto/bloqueo/reserva y muestra el diagnóstico. Recargar o pulsar otra vez no vuelve a consultar la respuesta. Un404 no demuestra que no hubiera consumo ni permite liberar la reserva. La causa del fallo del proveedor puede seguir siendo desconocida.
+
+Si un operador ya observó ese404 en el proyecto original, puede registrar la observación sin repetir el GET. Con Azure CLI autenticado y permisos de datos sólo en su Storage propio:
+
+```sh
+uv run python scripts/recover.py --account <Storage-propio> --job <UUID-original> \
+  --record-observed-failure observacion.json --reason '404 ya observado en el proyecto original; conservar efecto y reserva'
+```
+
+El archivo UTF-8 debe incluir `job`, `response_id`, `effect` (UUID seguido de `:grounding`) y `observed:[{"operation":"responses.retrieve","same_project":true,"status":404}]`. Debe proceder de una observación real, sin contraseñas, cabeceras o cuerpos de error. El helper contrasta identidades/estado/bloqueo/reserva y guarda el hash del archivo; no fabrica una respuesta ni cambia el ledger. También admite el formato de diagnóstico histórico de D2. Se requiere sólo el repositorio y la evidencia de su propia instalación, sin ficheros privados del autor.
+
+Cuando el proveedor confirme un cambio material o se corrija un contexto equivocado, el operador puede hacer **una sola lectura explícita** del ID original:
+
+```sh
+uv run python scripts/recover.py --account <Storage-propio> --job <UUID-original> \
+  --recheck --project-endpoint https://<cuenta-propia>.services.ai.azure.com/api/projects/<proyecto-original> \
+  --reason 'Cambio comprobado del proveedor o contexto; leer una vez el ID original'
+```
+
+No usar ese comando como bucle frente a errores idénticos. Si falla, vuelve a conservar la incertidumbre. Un resultado completo y acreditado permite continuar el mismo informe; un resultado terminal fallido puede cerrar su bloqueo, manteniendo la reserva de consumo. Si el ID sigue sin resultado, mantén la operación y solicita conciliación al proveedor con sus identificadores. No poner el bloqueo a null, resetear contadores, iniciar otro análisis para saltarlo ni dar PASS a partir de ese estado.
+
 Un error de fuente deja un fallo recuperable sin llamadas a modelos. Puedes cerrar un análisis que no esté activo/incierto para liberar su bloqueo. Una operación incierta requiere conciliación del operador antes de otra ejecución. La ausencia de almacenamiento o Bing devuelve un mensaje específico, sin resultado inventado.
 
 ## Arquitectura

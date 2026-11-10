@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -12,8 +13,9 @@ from azure.ai.projects.models import (
     PromptAgentDefinition, Reasoning, BingCustomSearchPreviewTool,
     BingCustomSearchToolParameters, BingCustomSearchConfiguration,
 )
+from openai import APIError
 
-from .errors import AppError
+from .errors import AppError, ResponseLookupError
 from .repository import credential
 from .sources import allowed
 
@@ -201,14 +203,31 @@ def response_client(project):
 
 
 def read_response(client, job):
-    response = client.responses.retrieve(job["response_id"])
-    if response.status in ("queued", "in_progress"):
+    data = job.get('response_snapshot')
+    if data is None:
+        context = job.get('response_context', {}).get('base_url')
+        if context and str(client.base_url).rstrip('/') != context.rstrip('/'):
+            raise ResponseLookupError({'error_type': 'ResponseContextMismatch', 'response_id': job['response_id']})
+        try:
+            response = client.responses.retrieve(job['response_id'])
+        except APIError as exc:
+            request_id = getattr(exc, 'request_id', None)
+            raise ResponseLookupError({
+                'provider_status': getattr(exc, 'status_code', None),
+                'request_id': request_id if isinstance(request_id, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', request_id) else None,
+                'error_type': type(exc).__name__, 'response_id': job['response_id'],
+            }) from None
+        data = response.model_dump(warnings=False)
+        data.update(id=response.id, status=response.status)
+    if data.get('id') != job['response_id']:
+        raise ResponseLookupError({'error_type': 'ResponseIdentityMismatch', 'response_id': job['response_id']})
+    if data.get('status') in ("queued", "in_progress"):
         return None
-    if response.status != "completed":
-        code = getattr(response.error, "code", None) if response.error else None
+    if data.get('status') not in ('completed', 'failed', 'cancelled', 'incomplete'):
+        raise ResponseLookupError({'error_type': 'UnexpectedResponseStatus', 'response_id': job['response_id']})
+    if data.get('status') != "completed":
         raise AppError("grounding_incomplete", "El agente Responses terminó sin evidencia completa: "
-                       + str(response.status) + (" (" + str(code) + ")" if code else "") + ".", 502)
-    data = response.model_dump(warnings=False)  # Azure preview item types extend the OpenAI union.
+                       + str(data.get('status')) + ".", 502)
     searches = [item for item in data.get("output", [])
                 if item.get("type") in ("bing_custom_search_call", "bing_custom_search_preview_call")]
     if not searches:
@@ -240,7 +259,32 @@ def read_response(client, job):
     return {"extraction": extraction, "citations": citations,
             "query_urls": [c["url"] for c in citations if c["url"].startswith("https://www.bing.com/search?")],
             "usage": usage, "searches": len(searches), "raw_text": raw,
-            "api": "responses", "response_id": response.id}
+            "api": "responses", "response_id": data['id']}
+
+
+def response_snapshot(response, expected_id):
+    """Persist the terminal service event, without internal tool URLs or headers."""
+    if response.id != expected_id:
+        raise AppError('grounding_uncertain', 'La etapa devolvió otro ID. Conserva el original y concilia.', 502)
+    data = response.model_dump(warnings=False)
+    output = []
+    for item in data.get('output', []):
+        if item.get('type') in ('bing_custom_search_call', 'bing_custom_search_preview_call'):
+            output.append({k: item[k] for k in ('id', 'type', 'status') if k in item})
+        elif item.get('type') == 'message' and item.get('role') == 'assistant':
+            content = []
+            for part in item.get('content', []):
+                if part.get('type') != 'output_text':
+                    continue
+                annotations = [{k: cite[k] for k in ('type', 'url', 'title') if k in cite}
+                    for cite in part.get('annotations', [])
+                    if cite.get('type') == 'url_citation' and (allowed(cite.get('url', '')) or
+                        str(cite.get('url', '')).startswith('https://www.bing.com/search?'))]
+                content.append({'type': 'output_text', 'text': part.get('text', ''), 'annotations': annotations})
+            output.append({'type': 'message', 'role': 'assistant', 'content': content})
+    usage = data.get('usage') or {}
+    return {'id': response.id, 'status': response.status, 'output': output,
+            'usage': {k: usage[k] for k in ('input_tokens', 'output_tokens', 'total_tokens', 'output_tokens_details') if k in usage}}
 
 
 def finite(value, low, high):

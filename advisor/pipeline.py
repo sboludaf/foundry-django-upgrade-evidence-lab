@@ -6,9 +6,10 @@ import time
 import uuid
 
 from .domain import compare, validate_evidence, version, decision_warnings
-from .errors import AppError
+from .errors import AppError, ResponseLookupError
+from .recovery import mark_lookup_failure
 from .integrations import (agents, read_grounding, call_decision, decision_body,
-    prompt_project, prompt_grounding_tool, prompt_application_agent, response_client, read_response)
+    prompt_project, prompt_grounding_tool, prompt_application_agent, response_client, read_response, response_snapshot)
 from .repository import store
 from .sources import collect
 from .extraction import TARGETS
@@ -125,11 +126,21 @@ def ground(owner, job_id):
             for event in stream:
                 if event.type == "response.created":
                     job, etag = backend.job(job_id, owner)
+                    if job.get('response_id') and job['response_id'] != event.response.id:
+                        raise AppError('grounding_uncertain', 'La etapa devolvió otro ID; conserva el original.', 502)
                     job["response_id"], job["stage"] = event.response.id, "grounding_running"
+                    job['response_context'] = {'project_endpoint': os.environ['AZURE_AI_PROJECT_ENDPOINT'],
+                                               'base_url': str(client.base_url)}
+                    backend.save_job(job, etag)
+                elif event.type in ('response.completed', 'response.failed', 'response.incomplete'):
+                    job, etag = backend.job(job_id, owner)
+                    if not job.get('response_id'):
+                        raise AppError('grounding_uncertain', 'Falta el ID inicial; no se reenviará.', 502)
+                    job['response_snapshot'] = response_snapshot(event.response, job['response_id'])
                     backend.save_job(job, etag)
                     break
             else:
-                raise AppError("grounding_uncertain", "La respuesta no confirmó su ID; no se reenviará.", 502)
+                raise AppError("grounding_uncertain", "El stream terminó sin respuesta final; conserva el ID y concilia sin reenviar.", 502)
         return job
     except Exception as exc:
         job, etag = backend.job(job_id, owner)
@@ -144,6 +155,8 @@ def ground(owner, job_id):
 def reconcile(owner, job_id):
     backend = store()
     job, etag = backend.job(job_id, owner)
+    if job.get('recovery', {}).get('blocked'):
+        raise AppError('grounding_recovery_required', job['error']['message'], 409)
     if (job["stage"] == "uncertain" and job.get("response_id")
             and job.get("effect") == job_id + ":grounding"):
         job["stage"] = "grounding_running"
@@ -160,27 +173,40 @@ def reconcile(owner, job_id):
     if job["stage"] not in ("grounding_running", "grounding_failed"):
         return job
     try:
-        result = (read_response(response_client(prompt_project()), job)
+        result = (read_response(None if job.get('response_snapshot') else response_client(prompt_project()), job)
                   if job.get("grounding_api") == "responses" else read_grounding(agents(), job))
         if result is None:
             return job
-        job["grounding"] = result
-        job["original"] = result["extraction"]
-        try:
-            job["original_validated"] = validate_evidence(job["original"], job["sources"])
-            job["original_validation"] = {"valid": True}
-        except AppError as validation:
-            job["original_validated"] = None
-            job["original_validation"] = {"valid": False, "code": validation.code, "message": str(validation)}
-        job["stage"] = "awaiting_review"
-        job.pop("error", None)
+        job = apply_grounding_result(job, result)
         backend.save_job(job, etag)
         backend.release(job_id)
+    except ResponseLookupError as exc:
+        job = mark_lookup_failure(job, exc.diagnostic)
+        backend.save_job(job, etag)
+        # A missing/read-failed response is not a terminal inference. Keep both
+        # the active-job lock and its entire original reservation.
+        raise
     except AppError as exc:
         job["stage"], job["error"] = "grounding_failed", {"code": exc.code, "message": str(exc)}
         backend.save_job(job, etag)
         backend.release(job_id)
         raise
+    return job
+
+
+def apply_grounding_result(job, result):
+    job = copy.deepcopy(job)
+    job['grounding'] = result
+    job['original'] = result['extraction']
+    try:
+        job['original_validated'] = validate_evidence(job['original'], job['sources'])
+        job['original_validation'] = {'valid': True}
+    except AppError as validation:
+        job['original_validated'] = None
+        job['original_validation'] = {'valid': False, 'code': validation.code, 'message': str(validation)}
+    job['stage'] = 'awaiting_review'
+    job.pop('error', None)
+    job.pop('recovery', None)
     return job
 
 

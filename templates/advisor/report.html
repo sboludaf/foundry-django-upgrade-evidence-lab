@@ -6,6 +6,9 @@
 <div id="status" class="status" role="status" aria-live="polite"></div>
 {% if not download %}{% csrf_token %}{% endif %}
 {% if job.error %}<section class="card"><h2>Etapa pendiente</h2><p>{{job.error.message}}</p></section>{% endif %}
+{% if job.recovery.blocked %}<section class="card"><h2>Respuesta pendiente de conciliación</h2>
+<p>La operación original no se vuelve a enviar. Se mantiene su reserva hasta comprobar el resultado.</p>
+<details><summary>Identificadores para el operador</summary><p>Respuesta: {{job.response_id}}</p><p>Conversación: {{job.conversation_id}}</p><p>Estado del proveedor: {{job.recovery.provider_status|default:"sin confirmación"}}</p></details></section>{% endif %}
 <section class="card conclusion" aria-labelledby="conclusion-title"><p class="eyebrow">CONCLUSIÓN DEL INFORME</p>
 <h2 id="conclusion-title">{{job.conclusion.label}}</h2>
 <p>Versión instalada: <strong>{{job.version}}</strong>. Versión propuesta: <strong>{{job.conclusion.proposed_version|default:"sin propuesta acreditada"}}</strong>.</p>
@@ -20,7 +23,7 @@
 {% if job.stage == "created" or job.stage == "source_failed" %}<button data-action="sources">Recuperar fuentes oficiales</button>{% endif %}
 {% if job.stage == "sources_ready" %}
 {% if grounding_ready %}<button data-action="ground">Buscar con Bing y extraer evidencia</button>{% else %}<p>Bing Custom Search pendiente. La recuperación HTTP no acredita esa búsqueda.</p>{% endif %}{% endif %}
-{% if job.stage == "grounding_running" or job.stage == "grounding_failed" or job.stage == "uncertain" %}<button data-action="reconcile">Consultar la etapa existente</button>{% endif %}
+{% if not job.recovery.blocked %}{% if job.stage == "grounding_running" or job.stage == "grounding_failed" or job.stage == "uncertain" %}<button data-action="reconcile">Consultar la etapa existente</button>{% endif %}{% endif %}
 {% endif %}
 </section>
 {% if has_extraction %}<section class="card"><h2>Extracción original del agente</h2><p>{{job.original.summary}}</p>

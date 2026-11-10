@@ -80,7 +80,8 @@ class Client:
                         413: "Reduce el texto conservando citas y datos críticos."}.get(exc.code, "Consulta show antes de repetir la operación.")
             codes = {"invalid_input", "invalid_evidence", "unverified_claim", "unverified_branch", "unverified_fix",
                      "unverified_range", "wrong_branch", "unverified_condition", "unverified_support", "review_reason",
-                     "review_required", "concurrent_change", "stage_locked", "environment_evidence", "decision_input_limit"}
+                     "review_required", "concurrent_change", "stage_locked", "environment_evidence", "decision_input_limit",
+                     "grounding_response_unavailable", "grounding_recovery_required"}
             detail = ""
             try:
                 error = json.loads(exc.read(8192))

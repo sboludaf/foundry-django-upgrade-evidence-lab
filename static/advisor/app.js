@@ -5,7 +5,11 @@ function status(message) { if (statusBox) statusBox.textContent = message; }
 async function post(url, data = {}) {
   const response = await fetch(url, {method:"POST", mode:"same-origin", headers:{"Content-Type":"application/json","X-CSRFToken":csrf()},body:JSON.stringify(data)});
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error || "No se confirmó la operación. Consulta el informe antes de repetir.");
+  if (!response.ok) {
+    const error = new Error(value.error || "No se confirmó la operación. Consulta el informe antes de repetir.");
+    error.code = value.code;
+    throw error;
+  }
   return value;
 }
 if(form) form.addEventListener("submit", async event => {
@@ -26,7 +30,10 @@ if(jobNode) {
   document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", async () => {
     button.disabled = true;
     try { status("Procesando la etapa solicitada…"); await post("/api/jobs/" + job.id + "/" + button.dataset.action + "/"); location.reload(); }
-    catch(error) { status(error.message); button.disabled = false; }
+    catch(error) {
+      if (["grounding_response_unavailable", "grounding_recovery_required"].includes(error.code)) location.reload();
+      else { status(error.message); button.disabled = false; }
+    }
   }));
   const review = document.querySelector("#review-form");
   const draft = structuredClone(job.review_proposal || {});
