@@ -4,11 +4,12 @@ param location string = 'westeurope'
 param resourceGroupName string = 'rg-${environmentName}'
 param operatorPrincipalId string
 param provisionGrounding string = 'true'
-@description('Retirement timestamp from the approved plan. This tag does not schedule deletion.')
-param cleanupAt string = '2026-11-11T10:00:00+01:00'
-@description('End of paid analyses from the approved plan; defaults to the retirement deadline.')
+@description('Planned retirement timestamp. This tag does not schedule deletion.')
+param cleanupAt string
+@description('End of paid analyses; defaults to the retirement deadline.')
 param labExpiresAt string = cleanupAt
-param proposalHash string = 'fa6aff792c7592ad892721d3c3511a4f18b5dfb82a867c205c35d36957b7cc5d'
+param labId string = 'foundry-django-upgrade-evidence'
+param proposalHash string = ''
 @description('For an existing installation, keep its current real image during provision.')
 param containerImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 @allowed(['6', '12', '16', '24'])
@@ -17,12 +18,13 @@ param modelCallLimit string = '12'
 param bingQueryLimit string = '6'
 @secure()
 param djangoSecret string = '${newGuid()}${newGuid()}'
-var tags = {
+var tags = union({
   'azd-env-name': environmentName
-  'lab-id': '2026-11-05-foundry-django-upgrade-evidence'
-  'proposal-hash': proposalHash
+  'lab-id': labId
   'cleanup-at': cleanupAt
-}
+}, empty(proposalHash) ? {} : {
+  'proposal-hash': proposalHash
+})
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: resourceGroupName
   location: location

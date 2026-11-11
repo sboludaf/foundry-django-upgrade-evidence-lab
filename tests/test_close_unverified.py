@@ -1,4 +1,4 @@
-"""Development-only closure regressions; no Azure, provider requests or QA claim."""
+"""Tests for closing an unverified report and starting another."""
 import copy
 import json
 from unittest.mock import patch

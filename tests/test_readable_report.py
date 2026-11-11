@@ -1,4 +1,4 @@
-"""Regression coverage for correction r6; development only, never Azure QA."""
+"""Tests for source extraction, review and report conclusions."""
 import copy
 import io
 import json

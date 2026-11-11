@@ -1,4 +1,4 @@
-"""Development regressions for D2; no network, inference or independent QA."""
+"""Tests for recovering stored provider responses."""
 import copy
 import json
 from types import SimpleNamespace
